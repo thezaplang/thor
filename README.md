@@ -1,4 +1,4 @@
-# ZBuild
+# Thor
 
 A self-hosted build tool for the [Zap programming language](https://github.com/thezaplang/zap).
 
@@ -8,49 +8,49 @@ A self-hosted build tool for the [Zap programming language](https://github.com/t
 
 ## Building from Source
 
-Zbuild is self-hosted — it uses itself to build itself. The first build must be done manually using the Zap compiler directly.
+Thor is self-hosted — it uses itself to build itself. The first build must be done manually using the Zap compiler directly.
 
 ### Step 1 — Bootstrap
 
 ```bash
-git clone https://github.com/funcieqDEV/zbuild
-cd zbuild
+git clone https://github.com/funcieqDEV/thor
+cd thor
 mkdir -p build
-zapc src/main.zp -o build/zbuild
+zapc src/main.zp -o build/thor
 ```
 
 ### Step 2 — Self-hosted build
 
-Once the bootstrap binary exists, use it to rebuild Zbuild with Zbuild itself:
+Once the bootstrap binary exists, use it to rebuild Thor with Thor itself:
 
 ```bash
-./build/zbuild build
+./build/thor build
 ```
 
-You now have a fully self-hosted Zbuild binary.
+You now have a fully self-hosted Thor binary.
 
 ## Adding to PATH
 
 ```bash
 # Option A — copy to a directory already in PATH
-sudo cp build/zbuild /usr/local/bin/zbuild
+sudo cp build/thor /usr/local/bin/thor
 
 # Option B — add the build directory to PATH (add to ~/.bashrc or ~/.zshrc)
-export PATH="$PATH:/path/to/zbuild/build"
+export PATH="$PATH:/path/to/thor/build"
 source ~/.bashrc
 ```
 
 Verify:
 
 ```bash
-zbuild --version
+thor --version
 ```
 
 ## Usage
-```
-zbuild new <project_name>
-zbuild build
-zbuild run
+```text
+thor new <project_name>
+thor build
+thor run
 ```
 
 ## License

@@ -1,6 +1,6 @@
 {
-  "name": "zbuild",
-  "version": "0.1.1",
-  "out": "build/",
-  "entry": "src/main.zp"
+    "name": "thor",
+    "version": "0.3.0",
+    "out": "build/",
+    "entry": "src/main.zp"
 }
