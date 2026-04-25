@@ -13,7 +13,7 @@ Thor is self-hosted — it uses itself to build itself. The first build must be 
 ### Step 1 — Bootstrap
 
 ```bash
-git clone https://github.com/funcieqDEV/thor
+git clone https://github.com/thezaplang/thor
 cd thor
 mkdir -p build
 zapc src/main.zp -o build/thor

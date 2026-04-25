@@ -4,18 +4,20 @@ import "std/fs";
 import "std/path";
 import "std/collection";
 import "std/string" {eq, stringLen as len, at, pushChar};
-import "util/json.zp" as json;
+import "std/json" as json;
 
 const THOR_VERSION: String = "0.3.0";
 
 class CliOptions {
     pub outputOverride: String;
     pub compilerOverride: String;
+    pub optimizationOverride: String;
     pub passthroughFlags: collection.List<String>;
 
     fun init() {
         self.outputOverride = "";
         self.compilerOverride = "";
+        self.optimizationOverride = "";
         self.passthroughFlags = new collection.List<String>();
     }
 }
@@ -32,11 +34,14 @@ fun usage(argv0: String) {
     io.eprintln("options:");
     io.eprintln("  -o <OUTPUT>           Override output path");
     io.eprintln("  --compiler <PATH>     Override compiler executable (default: zapc)");
+    io.eprintln("  -O, -O0..-O3          Override optimization level for this run");
+    io.eprintln("  -O00..-O03            Alias for -O0..-O3");
     io.eprintln("");
-    io.eprintln("zap.json fields:");
+    io.eprintln("thor.json fields:");
     io.eprintln("  name, out, entry");
     io.eprintln("  compiler              Optional compiler executable");
     io.eprintln("  flags                 Optional string with extra compiler flags");
+    io.eprintln("  optimization          Optional optimization level: O0..O3 or O00..O03");
 }
 
 fun startsWithDash(value: String) Bool {
@@ -115,20 +120,20 @@ fun getConfigString(config: json.JsonObject, key: String) String {
 }
 
 fun readProjectConfig() json.JsonObject {
-    var filePath: String = "zap.json";
+    var filePath: String = "thor.json";
     if !fs.exists(filePath) {
-        io.eprintln("missing zap.json in current directory");
+        io.eprintln("missing thor.json in current directory");
         process.exit(1);
     }
 
     if !fs.isFile(filePath) {
-        io.eprintln("zap.json exists but is not a file");
+        io.eprintln("thor.json exists but is not a file");
         process.exit(1);
     }
 
     var parsed: json.JsonObject = parseRootObject(fs.readFile(filePath));
     if parsed.size() == 0 || !parsed.valid {
-        io.eprintln("failed to parse zap.json");
+        io.eprintln("failed to parse thor.json");
         process.exit(1);
     }
 
@@ -169,7 +174,7 @@ fun ensureParentDir(filePath: String) Int {
 fun validateBuildConfig(config: json.JsonObject) Int {
     var entry: String = getConfigString(config, "entry");
     if len(entry) == 0 {
-        io.eprintln("zap.json is missing entry");
+        io.eprintln("thor.json is missing entry");
         return 1;
     }
 
@@ -241,6 +246,46 @@ fun appendList(dst: collection.List<String>, src: collection.List<String>) {
     }
 }
 
+fun normalizeOptimization(raw: String) String {
+    if eq(raw, "") {
+        return "";
+    }
+
+    if eq(raw, "O00") {
+        return "O0";
+    } else if eq(raw, "O01") {
+        return "O1";
+    } else if eq(raw, "O02") {
+        return "O2";
+    } else if eq(raw, "O03") {
+        return "O3";
+    }
+
+    if eq(raw, "O0") || eq(raw, "O1") || eq(raw, "O2") || eq(raw, "O3") {
+        return raw;
+    }
+
+    if eq(raw, "-O") {
+        return "O2";
+    }
+
+    if len(raw) == 3 && at(raw, 0) == '-' && at(raw, 1) == 'O' {
+        var c: Char = at(raw, 2);
+        if c >= '0' && c <= '3' {
+            return "O" + pushChar("", c);
+        }
+    }
+
+    if len(raw) == 4 && at(raw, 0) == '-' && at(raw, 1) == 'O' && at(raw, 2) == '0' {
+        var d: Char = at(raw, 3);
+        if d >= '0' && d <= '3' {
+            return "O" + pushChar("", d);
+        }
+    }
+
+    return "";
+}
+
 fun parseBuildRunOptions(cmd: String) CliOptions {
     var options: CliOptions = new CliOptions();
     var i: Int = 2;
@@ -278,6 +323,23 @@ fun parseBuildRunOptions(cmd: String) CliOptions {
             }
             options.compilerOverride = process.argv(i + 1);
             i = i + 2;
+            continue;
+        }
+
+        if eq(arg, "-O") {
+            options.optimizationOverride = "O2";
+            i = i + 1;
+            continue;
+        }
+
+        if len(arg) >= 2 && at(arg, 0) == '-' && at(arg, 1) == 'O' {
+            var normalized: String = normalizeOptimization(arg);
+            if len(normalized) == 0 {
+                io.eprintln("invalid optimization override: " + arg + " (expected -O, -O0..-O3, or -O00..-O03)");
+                process.exit(1);
+            }
+            options.optimizationOverride = normalized;
+            i = i + 1;
             continue;
         }
 
@@ -348,6 +410,7 @@ fun buildProject(options: CliOptions) Int {
     var outputPath: String = resolveOutputPath(config, options.outputOverride);
     var compiler: String = resolveCompiler(config, options.compilerOverride);
     var configFlags: String = getConfigString(config, "flags");
+    var optimizationFromConfig: String = getConfigString(config, "optimization");
 
     if len(outputPath) == 0 {
         io.eprintln("invalid output path");
@@ -359,13 +422,32 @@ fun buildProject(options: CliOptions) Int {
         return 1;
     }
 
+    var normalizedOptimization: String = normalizeOptimization(optimizationFromConfig);
+    if len(options.optimizationOverride) != 0 {
+        normalizedOptimization = options.optimizationOverride;
+    }
+
+    if len(optimizationFromConfig) != 0 && len(normalizeOptimization(optimizationFromConfig)) == 0 {
+        io.eprintln("invalid optimization in thor.json: " + optimizationFromConfig + " (expected O0..O3 or O00..O03)");
+        return 1;
+    }
+
     if ensureParentDir(outputPath) != 0 {
         io.eprintln("failed to create output directory for " + outputPath);
         return 1;
     }
 
+    var effectiveFlags: String = configFlags;
+    if len(normalizedOptimization) != 0 {
+        if len(effectiveFlags) != 0 {
+            effectiveFlags = "-" + normalizedOptimization + " " + effectiveFlags;
+        } else {
+            effectiveFlags = "-" + normalizedOptimization;
+        }
+    }
+
     var parts: collection.List<String> =
-        buildCommandParts(compiler, entry, outputPath, configFlags, options.passthroughFlags);
+        buildCommandParts(compiler, entry, outputPath, effectiveFlags, options.passthroughFlags);
     var cmd: String = joinCommandForShell(parts);
 
     io.println("build: " + cmd);
@@ -401,7 +483,7 @@ fun scaffoldMainSource(projectName: String) String {
         "}\n";
 }
 
-fun scaffoldZapJson(projectName: String) String {
+fun scaffoldThorJson(projectName: String) String {
     return
         "{\n" +
         "  \"name\": \"" + projectName + "\",\n" +
@@ -409,6 +491,7 @@ fun scaffoldZapJson(projectName: String) String {
         "  \"out\": \"build/\",\n" +
         "  \"entry\": \"src/main.zp\",\n" +
         "  \"compiler\": \"zapc\",\n" +
+        "  \"optimization\": \"O0\",\n" +
         "  \"flags\": \"\"\n" +
         "}\n";
 }
@@ -427,7 +510,7 @@ fun createProject(projectName: String) Int {
 
     var root: String = projectName;
     var srcDir: String = path.join(root, "src");
-    var zapJsonPath: String = path.join(root, "zap.json");
+    var thorJsonPath: String = path.join(root, "thor.json");
     var mainPath: String = path.join(srcDir, "main.zp");
 
     if fs.exists(root) {
@@ -440,8 +523,8 @@ fun createProject(projectName: String) Int {
         return 1;
     }
 
-    if fs.writeFile(zapJsonPath, scaffoldZapJson(projectName)) != 0 {
-        io.eprintln("failed to write " + zapJsonPath);
+    if fs.writeFile(thorJsonPath, scaffoldThorJson(projectName)) != 0 {
+        io.eprintln("failed to write " + thorJsonPath);
         return 1;
     }
 
