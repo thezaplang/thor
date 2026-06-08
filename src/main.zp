@@ -3,7 +3,7 @@ import "std/process";
 import "std/fs";
 import "std/path";
 import "std/collection";
-import "std/string" {eq, stringLen as len, at, pushChar};
+import "std/string" {eq, at, pushChar};
 import "std/json" as json;
 
 const THOR_VERSION: String = "0.3.0";
