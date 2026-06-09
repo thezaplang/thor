@@ -4,7 +4,7 @@ A self-hosted build tool for the [Zap programming language](https://github.com/t
 
 ## Requirements
 
-- [Zap](https://github.com/thezaplang/zap) `v0.1.1`
+- [Zap](https://github.com/thezaplang/zap) `v0.2.1`
 
 ## Building from Source
 
