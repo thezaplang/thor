@@ -14,9 +14,7 @@ Thor is self-hosted — it uses itself to build itself. The first build must be 
 
 ```bash
 git clone https://github.com/thezaplang/thor
-cd thor
-mkdir -p build
-zapc src/main.zp -o build/thor
+./build.sh
 ```
 
 ### Step 2 — Self-hosted build
