@@ -1,0 +1,4 @@
+* @thezaplang/Maintainers
+
+# Override src as being owned by funcieqDEV AND maintainers
+src @funcieqDEV @thezaplang/Maintainers
