@@ -554,6 +554,11 @@ fun scaffoldThorToml(projectName: String) String {
         "# \"@utils\" = \"./src/utils\"\n";
 }
 
+fun scaffoldGitignore() String {
+    return
+        "build/\n";
+}
+
 fun createProject(projectName: String) Int {
     if !isValidProjectName(projectName) {
         io.eprintln("invalid project name: " + projectName);
@@ -569,6 +574,7 @@ fun createProject(projectName: String) Int {
     var root: String = projectName;
     var srcDir: String = path.join(root, "src");
     var thorJsonPath: String = path.join(root, "thor.toml");
+    var gitignorePath: String = path.join(root, ".gitignore");
     var mainPath: String = path.join(srcDir, "main.zp");
 
     if fs.exists(root) {
@@ -583,6 +589,11 @@ fun createProject(projectName: String) Int {
 
     if fs.writeFile(thorJsonPath, scaffoldThorToml(projectName)) != 0 {
         io.eprintln("failed to write " + thorJsonPath);
+        return 1;
+    }
+
+    if fs.writeFile(gitignorePath, scaffoldGitignore()) != 0 {
+        io.eprintln("failed to write " + gitignorePath);
         return 1;
     }
 
