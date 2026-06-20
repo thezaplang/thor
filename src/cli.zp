@@ -1,0 +1,95 @@
+import "std/io";
+import "std/process";
+import "std/collection";
+import "std/string" {eq};
+import "./config.zp";
+import "./utils.zp";
+
+pub class CliOptions {
+    pub outputOverride: String;
+    pub compilerOverride: String;
+    pub optimizationOverride: String;
+    pub passthroughFlags: collection.List<String>;
+
+    pub fun init() {
+        self.outputOverride = "";
+        self.compilerOverride = "";
+        self.optimizationOverride = "";
+        self.passthroughFlags = new collection.List<String>();
+    }
+}
+
+pub fun usage(argv0: String) {
+    io.eprintln("thor " + config.THOR_VERSION);
+    io.eprintln("usage:");
+    io.eprintln("  " + argv0 + " build [options] [-- <extra zapc flags>]");
+    io.eprintln("  " + argv0 + " run   [options] [-- <extra zapc flags>]");
+    io.eprintln("  " + argv0 + " new   <project-name>");
+    io.eprintln("  " + argv0 + " add   <git_url>");
+    io.eprintln("  " + argv0 + " --version");
+    io.eprintln("  " + argv0 + " --help");
+    io.eprintln("");
+    io.eprintln("options:");
+    io.eprintln("  -o <OUTPUT>           Override output path");
+    io.eprintln("  --compiler <PATH>     Override compiler executable (default: zapc)");
+    io.eprintln("  -O, -O0..-O3          Override optimization level for this run");
+    io.eprintln("  -O00..-O03            Alias for -O0..-O3");
+}
+
+pub fun parseBuildRunOptions(cmd: String) CliOptions {
+    var options: CliOptions = new CliOptions();
+    var i: Int = 2;
+    var inPassthrough: Bool = false;
+
+    while i < process.argc() {
+        var arg: String = process.argv(i);
+        if inPassthrough {
+            options.passthroughFlags.push(arg);
+            i = i + 1;
+            continue;
+        }
+        if eq(arg, "--") {
+            inPassthrough = true;
+            i = i + 1;
+            continue;
+        }
+        if eq(arg, "-o") {
+            if i + 1 >= process.argc() {
+                io.eprintln("missing value after -o");
+                process.exit(1);
+            }
+            options.outputOverride = process.argv(i + 1);
+            i = i + 2;
+            continue;
+        }
+        if eq(arg, "--compiler") {
+            if i + 1 >= process.argc() {
+                io.eprintln("missing value after --compiler");
+                process.exit(1);
+            }
+            options.compilerOverride = process.argv(i + 1);
+            i = i + 2;
+            continue;
+        }
+        if eq(arg, "-O") {
+            options.optimizationOverride = "O2";
+            i = i + 1;
+            continue;
+        }
+        if string.len(arg) >= 2 && string.at(arg, 0) == '-' && string.at(arg, 1) == 'O' {
+            var normalized: String = config.normalizeOptimization(arg);
+            if string.len(normalized) == 0 {
+                io.eprintln("invalid optimization override: " + arg + " (expected -O, -O0..-O3, or -O00..-O03)");
+                process.exit(1);
+            }
+            options.optimizationOverride = normalized;
+            i = i + 1;
+            continue;
+        }
+
+        io.eprintln("invalid argument for command " + cmd + ": " + arg);
+        usage(process.argv(0));
+        process.exit(1);
+    }
+    return options;
+}

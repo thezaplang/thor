@@ -1,0 +1,245 @@
+import "std/io";
+import "std/fs";
+import "std/path";
+import "std/process";
+import "std/collection";
+import "std/string" {eq};
+import "@toml/toml";
+import "./utils.zp";
+
+pub const THOR_VERSION: String = "0.3.0";
+
+pub class ProjectConfig {
+    pub name: String;
+    pub out: String;
+    pub entry: String;
+    pub compiler: String;
+    pub flags: String;
+    pub optimization: String;
+    pub importMapFlags: collection.List<String>;
+    pub deps: collection.List<Dependency>;
+
+    pub fun init() {
+        self.name = "";
+        self.out = "";
+        self.entry = "";
+        self.compiler = "";
+        self.flags = "";
+        self.optimization = "";
+        self.importMapFlags = new collection.List<String>();
+        self.deps = new collection.List<Dependency>();
+    }
+}
+
+pub class Dependency {
+    pub name: String;
+    pub url: String;
+    pub version: String;
+    pub commit: String;
+
+    pub fun init() {
+        self.name = "";
+        self.url = "";
+        self.version = "";
+        self.commit = "";
+    }
+}
+
+fun tomlStringInner(root: toml.Value, key: String) String!toml.TomlError {
+    var v: toml.Value = root.get(key)?;
+    return v.asString()?;
+}
+
+fun tomlString(root: toml.Value, key: String) String {
+    return tomlStringInner(root, key) or "";
+}
+
+fun processImports(root: toml.Value, cfg: ProjectConfig) {
+    var imports: toml.Value = root.get("imports") or err {
+        return;
+    };
+    if imports.isTable() {
+        var size: Int = imports.size();
+        var i: Int = 0;
+        while i < size {
+            var key: String = imports.keyAt(i) or err { return; };
+            var target: toml.Value = imports.valueAt(i) or err { return; };
+            if string.len(key) != 0 && target.isString() {
+                var targetPath: String = target.asString() or "";
+                if string.len(targetPath) != 0 {
+                    cfg.importMapFlags.push("--import-map");
+                    cfg.importMapFlags.push(key + "=" + targetPath);
+                }
+            }
+            i = i + 1;
+        }
+    }
+}
+
+fun processDependencies(doc: toml.Document, root: toml.Value, cfg: ProjectConfig) {
+    var depsNode: toml.Value = root.get("dependencies") or err {
+        return;
+    };
+    if depsNode.isTable() {
+        var size: Int = depsNode.size();
+        var i: Int = 0;
+        while i < size {
+            var key: String = depsNode.keyAt(i) or err { return; };
+            var depObj: toml.Value = depsNode.valueAt(i) or err { return; };
+            if string.len(key) != 0 && depObj.isTable() {
+                var dep: Dependency = new Dependency();
+                dep.name = key;
+                dep.url = tomlString(depObj, "url");
+                dep.version = tomlString(depObj, "version");
+                dep.commit = tomlString(depObj, "commit");
+                cfg.deps.push(dep);
+                
+                cfg.importMapFlags.push("--import-map");
+                var libPath: String = "./vendor/" + key + "/src/lib";
+                if fs.exists(libPath) {
+                    cfg.importMapFlags.push("@" + key + "=" + libPath);
+                } else {
+                    cfg.importMapFlags.push("@" + key + "=./vendor/" + key + "/src");
+                }
+                
+                // Inherit flags from dependency's thor.toml
+                var depTomlPath: String = "vendor/" + key + "/thor.toml";
+                if fs.exists(depTomlPath) {
+                    var hasDepToml: Bool = true;
+                    var depDoc: toml.Document = toml.parseFile(depTomlPath) or err {
+                        hasDepToml = false;
+                        doc
+                    };
+                    if hasDepToml {
+                        var depRoot: toml.Value = depDoc.root();
+                        var depFlags: String = tomlString(depRoot, "flags");
+                        if string.len(depFlags) > 0 {
+                            var current: String = "";
+                            var l_idx: Int = 0;
+                            var flen: Int = string.len(depFlags);
+                            while l_idx <= flen {
+                                var c: Char = ' ';
+                                if l_idx < flen { c = string.at(depFlags, l_idx); }
+                                
+                                if c == ' ' {
+                                    if string.len(current) > 0 {
+                                        var processed: String = current;
+                                        if string.at(current, 0) == '-' {
+                                            if string.len(current) > 2 && string.at(current, 1) == 'L' {
+                                                var pathPart: String = "";
+                                                var j: Int = 2;
+                                                while j < string.len(current) { pathPart = string.pushChar(pathPart, string.at(current, j)); j = j + 1; }
+                                                if string.at(pathPart, 0) != '/' {
+                                                    processed = "-Lvendor/" + key + "/" + pathPart;
+                                                }
+                                            }
+                                        } else if string.at(current, 0) != '/' {
+                                            processed = "vendor/" + key + "/" + current;
+                                        }
+                                        if string.len(cfg.flags) > 0 { cfg.flags = cfg.flags + " "; }
+                                        cfg.flags = cfg.flags + processed;
+                                        current = "";
+                                    }
+                                } else {
+                                    current = string.pushChar(current, c);
+                                }
+                                l_idx = l_idx + 1;
+                            }
+                        }
+                        depDoc.close();
+                    }
+                }
+            }
+            i = i + 1;
+        }
+    }
+}
+
+pub fun loadProjectConfig() ProjectConfig {
+    if !fs.exists("thor.toml") {
+        io.eprintln("missing thor.toml in current directory");
+        process.exit(1);
+    }
+    if !fs.isFile("thor.toml") {
+        io.eprintln("thor.toml exists but is not a file");
+        process.exit(1);
+    }
+
+    var doc: toml.Document = toml.parseFile("thor.toml") or err {
+        io.eprintln("failed to parse thor.toml: " + err.message);
+        process.exit(1);
+        unsafe { new toml.Document(0 as *Void) }
+    };
+
+    var root: toml.Value = doc.root();
+    var cfg: ProjectConfig = new ProjectConfig();
+
+    cfg.name         = tomlString(root, "name");
+    cfg.out          = tomlString(root, "out");
+    cfg.entry        = tomlString(root, "entry");
+    cfg.compiler     = tomlString(root, "compiler");
+    cfg.flags        = tomlString(root, "flags");
+    cfg.optimization = tomlString(root, "optimization");
+
+    processImports(root, cfg);
+    processDependencies(doc, root, cfg);
+
+    doc.close();
+    return cfg;
+}
+
+pub fun resolveOutputPath(config: ProjectConfig, outputOverride: String) String {
+    if string.len(outputOverride) != 0 {
+        return outputOverride;
+    }
+    var name: String = config.name;
+    var out: String = config.out;
+    if string.len(name) == 0 { name = "app"; }
+    if string.len(out) == 0 { return name; }
+    if utils.endsWithSlash(out) { return path.join(out, name); }
+    return out;
+}
+
+pub fun resolveCompiler(config: ProjectConfig, overrideCompiler: String) String {
+    if string.len(overrideCompiler) != 0 { return overrideCompiler; }
+    if string.len(config.compiler) != 0 { return config.compiler; }
+    return "zapc";
+}
+
+pub fun normalizeOptimization(raw: String) String {
+    if eq(raw, "") { return ""; }
+    if eq(raw, "O00") { return "O0"; }
+    else if eq(raw, "O01") { return "O1"; }
+    else if eq(raw, "O02") { return "O2"; }
+    else if eq(raw, "O03") { return "O3"; }
+
+    if eq(raw, "O0") || eq(raw, "O1") || eq(raw, "O2") || eq(raw, "O3") { return raw; }
+    if eq(raw, "-O") { return "O2"; }
+
+    if string.len(raw) == 3 && string.at(raw, 0) == '-' && string.at(raw, 1) == 'O' {
+        var c: Char = string.at(raw, 2);
+        if c >= '0' && c <= '3' { return "O" + string.pushChar("", c); }
+    }
+    if string.len(raw) == 4 && string.at(raw, 0) == '-' && string.at(raw, 1) == 'O' && string.at(raw, 2) == '0' {
+        var d: Char = string.at(raw, 3);
+        if d >= '0' && d <= '3' { return "O" + string.pushChar("", d); }
+    }
+    return "";
+}
+
+pub fun validateBuildConfig(config: ProjectConfig) Int {
+    var entry: String = config.entry;
+    if string.len(entry) == 0 {
+        io.eprintln("thor.toml is missing entry");
+        return 1;
+    }
+    if !fs.exists(entry) {
+        io.eprintln("entry file does not exist: " + entry);
+        return 1;
+    }
+    if !fs.isFile(entry) {
+        io.eprintln("entry path is not a file: " + entry);
+        return 1;
+    }
+    return 0;
+}

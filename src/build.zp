@@ -1,0 +1,108 @@
+import "std/io";
+import "std/fs";
+import "std/path";
+import "std/process";
+import "std/collection";
+import "std/string" {eq};
+import "./config.zp";
+import "./utils.zp";
+import "./cli.zp";
+import "./deps.zp";
+
+fun ensureParentDir(filePath: String) Int {
+    var parentDir: String = path.parent(filePath);
+    if eq(parentDir, ".") || string.len(parentDir) == 0 { return 0; }
+    return fs.mkdirAll(parentDir);
+}
+
+fun buildCommandParts(
+    compiler: String,
+    entry: String,
+    outputPath: String,
+    configFlags: String,
+    passthroughFlags: collection.List<String>
+) collection.List<String> {
+    var parts: collection.List<String> = new collection.List<String>();
+    parts.push(compiler);
+
+    var configFlagParts: collection.List<String> = utils.splitFlags(configFlags);
+    utils.appendList(parts, configFlagParts);
+
+    parts.push("-o");
+    parts.push(outputPath);
+    parts.push(entry);
+
+    utils.appendList(parts, passthroughFlags);
+    return parts;
+}
+
+fun joinCommandForShell(parts: collection.List<String>) String {
+    var cmd: String = "";
+    var i: Int = 0;
+    while i < parts.len() {
+        if i != 0 { cmd = cmd + " "; }
+        cmd = cmd + utils.shellQuote(parts.at(i));
+        i = i + 1;
+    }
+    return cmd;
+}
+
+pub fun buildProject(options: cli.CliOptions) Int {
+    var cfg: config.ProjectConfig = config.loadProjectConfig();
+
+    if config.validateBuildConfig(cfg) != 0 { return 1; }
+    
+    if deps.restoreAndBuildDependencies(cfg) != 0 {
+        return 1;
+    }
+
+    var entry: String = cfg.entry;
+    var outputPath: String = config.resolveOutputPath(cfg, options.outputOverride);
+    var compiler: String = config.resolveCompiler(cfg, options.compilerOverride);
+    var optimizationFromConfig: String = cfg.optimization;
+
+    if string.len(outputPath) == 0 { io.eprintln("invalid output path"); return 1; }
+    if string.len(compiler) == 0 { io.eprintln("invalid compiler path"); return 1; }
+
+    var normalizedOptimization: String = config.normalizeOptimization(optimizationFromConfig);
+    if string.len(options.optimizationOverride) != 0 { normalizedOptimization = options.optimizationOverride; }
+
+    if string.len(optimizationFromConfig) != 0 && string.len(config.normalizeOptimization(optimizationFromConfig)) == 0 {
+        io.eprintln("invalid optimization in thor.toml: " + optimizationFromConfig);
+        return 1;
+    }
+
+    if ensureParentDir(outputPath) != 0 {
+        io.eprintln("failed to create output directory for " + outputPath);
+        return 1;
+    }
+
+    var effectiveFlags: String = cfg.flags;
+    if string.len(normalizedOptimization) != 0 {
+        if string.len(effectiveFlags) != 0 { effectiveFlags = "-" + normalizedOptimization + " " + effectiveFlags; }
+        else { effectiveFlags = "-" + normalizedOptimization; }
+    }
+
+    utils.appendList(options.passthroughFlags, cfg.importMapFlags);
+
+    var parts: collection.List<String> = buildCommandParts(compiler, entry, outputPath, effectiveFlags, options.passthroughFlags);
+    var cmd: String = joinCommandForShell(parts);
+
+    io.println("build: " + cmd);
+    return process.exec(cmd);
+}
+
+pub fun runProject(options: cli.CliOptions) Int {
+    var cfg: config.ProjectConfig = config.loadProjectConfig();
+    var outputPath: String = config.resolveOutputPath(cfg, options.outputOverride);
+
+    var buildCode: Int = buildProject(options);
+    if buildCode != 0 { return buildCode; }
+
+    var runPath: String = outputPath;
+    if !utils.hasSlash(runPath) { runPath = "./" + runPath; }
+
+    var runCmd: String = utils.shellQuote(runPath);
+    io.println("run: " + runCmd);
+    return process.exec(runCmd);
+}

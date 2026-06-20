@@ -1,0 +1,88 @@
+import "std/string" {at, pushChar};
+import "std/collection";
+
+pub fun startsWithDash(value: String) Bool {
+    if len(value) == 0 { return false; }
+    return at(value, 0) == '-';
+}
+
+pub fun endsWithSlash(value: String) Bool {
+    if len(value) == 0 { return false; }
+    return at(value, len(value) - 1) == '/';
+}
+
+pub fun shellQuote(value: String) String {
+    return "\"" + value + "\"";
+}
+
+pub fun hasSlash(value: String) Bool {
+    var i: Int = 0;
+    while i < len(value) {
+        var c: Char = at(value, i);
+        if c == '/' || c == '\\' { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+pub fun isWhitespace(c: Char) Bool {
+    return c == ' ' || c == '\n' || c == '\r' || c == '\t';
+}
+
+pub fun isValidProjectName(name: String) Bool {
+    if len(name) == 0 { return false; }
+    var first: Char = at(name, 0);
+    if first == '-' || first == '.' || first == '/' || first == '\\' || first == ' ' { return false; }
+    var i: Int = 0;
+    while i < len(name) {
+        var c: Char = at(name, i);
+        var isLower: Bool = c >= 'a' && c <= 'z';
+        var isUpper: Bool = c >= 'A' && c <= 'Z';
+        var isDigit: Bool = c >= '0' && c <= '9';
+        var isAllowedSymbol: Bool = c == '-' || c == '_' || c == '.';
+        if !(isLower || isUpper || isDigit || isAllowedSymbol) { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+pub fun splitFlags(flags: String) collection.List<String> {
+    var tokens: collection.List<String> = new collection.List<String>();
+    var current: String = "";
+    var inQuote: Bool = false;
+    var quoteChar: Char = '"';
+    var i: Int = 0;
+
+    while i < len(flags) {
+        var c: Char = at(flags, i);
+        if inQuote {
+            if c == quoteChar { inQuote = false; }
+            else { current = pushChar(current, c); }
+            i = i + 1;
+            continue;
+        }
+        if c == '"' || c == '\'' {
+            inQuote = true;
+            quoteChar = c;
+            i = i + 1;
+            continue;
+        }
+        if isWhitespace(c) {
+            if len(current) != 0 { tokens.push(current); current = ""; }
+            i = i + 1;
+            continue;
+        }
+        current = pushChar(current, c);
+        i = i + 1;
+    }
+    if len(current) != 0 { tokens.push(current); }
+    return tokens;
+}
+
+pub fun appendList(dst: collection.List<String>, src: collection.List<String>) {
+    var i: Int = 0;
+    while i < src.len() {
+        dst.push(src.at(i));
+        i = i + 1;
+    }
+}

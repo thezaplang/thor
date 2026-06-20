@@ -1,0 +1,213 @@
+import "std/io";
+import "std/process";
+import "std/fs";
+import "std/path";
+import "std/string" {eq};
+import "./config.zp";
+import "./utils.zp";
+import "std/collection";
+
+fun extractNameFromUrl(url: String) String {
+    var i: Int = string.len(url) - 1;
+    while i >= 0 {
+        if string.at(url, i) == '/' { break; }
+        i = i - 1;
+    }
+    var name: String = "";
+    var j: Int = i + 1;
+    while j < string.len(url) {
+        name = string.pushChar(name, string.at(url, j));
+        j = j + 1;
+    }
+    if string.len(name) > 4 {
+        var end: Int = string.len(name);
+        if string.at(name, end - 4) == '.' && string.at(name, end - 3) == 'g' && string.at(name, end - 2) == 'i' && string.at(name, end - 1) == 't' {
+            var clean: String = "";
+            var k: Int = 0;
+            while k < end - 4 {
+                clean = string.pushChar(clean, string.at(name, k));
+                k = k + 1;
+            }
+            return clean;
+        }
+    }
+    return name;
+}
+
+pub fun runShellCapture(cmd: String) String {
+    var tmpFile: String = ".thor_tmp_out";
+    var c: String = "(" + cmd + ") > " + tmpFile;
+    if process.exec(c) != 0 {
+        return "";
+    }
+    if fs.exists(tmpFile) {
+        var out: String = fs.readFile(tmpFile);
+        process.exec("rm -f " + tmpFile);
+        var l: Int = string.len(out);
+        if l > 0 && string.at(out, l - 1) == '\n' {
+            var trimmed: String = "";
+            var i: Int = 0;
+            while i < l - 1 {
+                trimmed = string.pushChar(trimmed, string.at(out, i));
+                i = i + 1;
+            }
+            return trimmed;
+        }
+        return out;
+    }
+    return "";
+}
+
+
+
+fun insertDepsAndImports(content: String, name: String, gitUrl: String, tag: String, commit: String, libPath: String) String {
+    var lines: collection.List<String> = new collection.List<String>();
+    var current: String = "";
+    var i: Int = 0;
+    while i < string.len(content) {
+        var c: Char = string.at(content, i);
+        if c == '\n' {
+            lines.push(current);
+            current = "";
+        } else if c != '\r' {
+            current = string.pushChar(current, c);
+        }
+        i = i + 1;
+    }
+    if string.len(current) != 0 {
+        lines.push(current);
+    }
+
+    var hasImports: Bool = false;
+    var hasDeps: Bool = false;
+
+    i = 0;
+    while i < lines.len() {
+        var l: String = lines.at(i);
+        if eq(l, "[imports]") { hasImports = true; }
+        if eq(l, "[dependencies]") { hasDeps = true; }
+        i = i + 1;
+    }
+
+    var depLine: String = "\"" + name + "\" = { url = \"" + gitUrl + "\", version = \"" + tag + "\", commit = \"" + commit + "\" }";
+    var importLine: String = "\"@" + name + "\" = \"" + libPath + "\"";
+
+    var newLines: collection.List<String> = new collection.List<String>();
+    var addedImport: Bool = !hasImports;
+    var addedDep: Bool = !hasDeps;
+    
+    i = 0;
+    while i < lines.len() {
+        var l: String = lines.at(i);
+        newLines.push(l);
+        if eq(l, "[imports]") && !addedImport {
+            newLines.push(importLine);
+            addedImport = true;
+        }
+        if eq(l, "[dependencies]") && !addedDep {
+            newLines.push(depLine);
+            addedDep = true;
+        }
+        i = i + 1;
+    }
+
+    if !hasImports {
+        newLines.push("");
+        newLines.push("[imports]");
+        newLines.push(importLine);
+    }
+    if !hasDeps {
+        newLines.push("");
+        newLines.push("[dependencies]");
+        newLines.push(depLine);
+    }
+
+    var res: String = "";
+    i = 0;
+    while i < newLines.len() {
+        res = res + newLines.at(i) + "\n";
+        i = i + 1;
+    }
+    return res;
+}
+
+pub fun addDependency(gitUrl: String) Int {
+    var name: String = extractNameFromUrl(gitUrl);
+    if string.len(name) == 0 {
+        io.eprintln("Invalid git URL");
+        return 1;
+    }
+
+    fs.mkdirAll("vendor");
+    var vendorPath: String = path.join("vendor", name);
+    
+    if fs.exists(vendorPath) {
+        io.println("Dependency " + name + " already exists in vendor/");
+    } else {
+        io.println("Cloning " + gitUrl + " into " + vendorPath + "...");
+        if process.exec("git clone --recursive " + utils.shellQuote(gitUrl) + " " + utils.shellQuote(vendorPath)) != 0 {
+            io.eprintln("Failed to clone dependency");
+            return 1;
+        }
+    }
+
+    var cwd: String = runShellCapture("pwd");
+    var commit: String = runShellCapture("cd " + utils.shellQuote(vendorPath) + " && git rev-parse HEAD");
+    var tag: String = runShellCapture("cd " + utils.shellQuote(vendorPath) + " && git describe --tags --abbrev=0 2>/dev/null");
+    
+    if string.len(tag) == 0 {
+        tag = commit;
+    }
+
+    var libPath: String = "./vendor/" + name + "/src/lib";
+    if !fs.exists(vendorPath + "/src/lib") {
+        libPath = "./vendor/" + name + "/src";
+    }
+
+    var tomlPath: String = "thor.toml";
+    var content: String = fs.readFile(tomlPath);
+    
+    var newContent: String = insertDepsAndImports(content, name, gitUrl, tag, commit, libPath);
+    
+    if fs.writeFile(tomlPath, newContent) != 0 {
+        io.eprintln("Failed to write to thor.toml");
+        return 1;
+    }
+
+    io.println("Added dependency: " + name + " (" + tag + ")");
+    return 0;
+}
+
+pub fun restoreAndBuildDependencies(cfg: config.ProjectConfig) Int {
+    if cfg.deps.len() == 0 { return 0; }
+    
+    fs.mkdirAll("vendor");
+    var i: Int = 0;
+    while i < cfg.deps.len() {
+        var dep: config.Dependency = cfg.deps.at(i);
+        var vendorPath: String = path.join("vendor", dep.name);
+        
+        if !fs.exists(vendorPath) {
+            io.println("Restoring dependency " + dep.name + "...");
+            if process.exec("git clone --recursive " + utils.shellQuote(dep.url) + " " + utils.shellQuote(vendorPath)) != 0 {
+                io.eprintln("Failed to clone " + dep.name);
+                return 1;
+            }
+            if string.len(dep.commit) != 0 {
+                process.exec("cd " + utils.shellQuote(vendorPath) + " && git checkout " + utils.shellQuote(dep.commit));
+            }
+            process.exec("cd " + utils.shellQuote(vendorPath) + " && git submodule update --init --recursive");
+        }
+        
+        var buildScript: String = path.join(vendorPath, "build.sh");
+        if fs.exists(buildScript) {
+            io.println("Running build.sh for " + dep.name + "...");
+            if process.exec("cd " + utils.shellQuote(vendorPath) + " && bash build.sh") != 0 {
+                io.eprintln("Failed to build " + dep.name);
+                return 1;
+            }
+        }
+        i = i + 1;
+    }
+    return 0;
+}

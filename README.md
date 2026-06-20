@@ -8,16 +8,16 @@ A self-hosted build tool for the [Zap programming language](https://github.com/t
 
 ## Building from Source
 
-Thor is self-hosted — it uses itself to build itself. The first build must be done manually using the Zap compiler directly.
+Thor is self-hosted so that means it uses itself to build itself. The first build must be done manually using the Zap compiler directly.
 
-### Step 1 — Bootstrap
+### Step 1 -> Bootstrap
 
 ```bash
 git clone https://github.com/thezaplang/thor
 ./build.sh
 ```
 
-### Step 2 — Self-hosted build
+### Step 2 -> Self-hosted build
 
 Once the bootstrap binary exists, use it to rebuild Thor with Thor itself:
 
@@ -45,10 +45,20 @@ thor --version
 ```
 
 ## Usage
-```text
+```bash
 thor new <project_name>
 thor build
 thor run
+```
+
+
+## dependency
+
+to add a new dependency simply run
+
+```bash
+thor add <github_url>
+
 ```
 
 ## License

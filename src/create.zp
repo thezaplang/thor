@@ -1,0 +1,62 @@
+import "std/io";
+import "std/fs";
+import "std/path";
+import "std/string" {eq};
+import "./utils.zp";
+
+pub fun scaffoldMainSource(projectName: String) String {
+    return "import \"std/io\";\n\nfun main() Int {\n    io.println(\"hello from " + projectName + "\");\n    return 0;\n}\n";
+}
+
+pub fun scaffoldThorToml(projectName: String) String {
+    return "name         = \"" + projectName + "\"\nversion      = \"0.1.0\"\nout          = \"build/\"\nentry        = \"src/main.zp\"\n\n# compiler  = \"zapc\"\n# optimization = \"O0\"\n# flags     = \"\"\n\n# [imports]\n# \"@utils\" = \"./src/utils\"\n";
+}
+
+pub fun scaffoldGitignore() String {
+    return "build/\nvendor/\n";
+}
+
+pub fun createProject(projectName: String) Int {
+    if !utils.isValidProjectName(projectName) {
+        io.eprintln("invalid project name: " + projectName);
+        return 1;
+    }
+    if utils.startsWithDash(projectName) {
+        io.eprintln("project name cannot start with '-'");
+        return 1;
+    }
+
+    var root: String = projectName;
+    var srcDir: String = path.join(root, "src");
+    var thorJsonPath: String = path.join(root, "thor.toml");
+    var gitignorePath: String = path.join(root, ".gitignore");
+    var mainPath: String = path.join(srcDir, "main.zp");
+
+    if fs.exists(root) {
+        io.eprintln("target already exists: " + root);
+        return 1;
+    }
+
+    if fs.mkdirAll(srcDir) != 0 {
+        io.eprintln("failed to create project directories");
+        return 1;
+    }
+
+    if fs.writeFile(thorJsonPath, scaffoldThorToml(projectName)) != 0 {
+        io.eprintln("failed to write " + thorJsonPath);
+        return 1;
+    }
+
+    if fs.writeFile(gitignorePath, scaffoldGitignore()) != 0 {
+        io.eprintln("failed to write " + gitignorePath);
+        return 1;
+    }
+
+    if fs.writeFile(mainPath, scaffoldMainSource(projectName)) != 0 {
+        io.eprintln("failed to write " + mainPath);
+        return 1;
+    }
+
+    io.println("created project: " + root);
+    return 0;
+}

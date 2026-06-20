@@ -1,1 +1,6 @@
 build/
+.agents/
+zap/
+zap-toml/
+vendor/zap-sfml/
+mytest/
