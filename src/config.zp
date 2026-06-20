@@ -31,18 +31,11 @@ pub class ProjectConfig {
     }
 }
 
-pub class Dependency {
-    pub name: String;
-    pub url: String;
-    pub version: String;
-    pub commit: String;
-
-    pub fun init() {
-        self.name = "";
-        self.url = "";
-        self.version = "";
-        self.commit = "";
-    }
+pub struct Dependency {
+    name: String,
+    url: String,
+    version: String,
+    commit: String,
 }
 
 fun tomlStringInner(root: toml.Value, key: String) String!toml.TomlError {
@@ -52,6 +45,10 @@ fun tomlStringInner(root: toml.Value, key: String) String!toml.TomlError {
 
 fun tomlString(root: toml.Value, key: String) String {
     return tomlStringInner(root, key) or "";
+}
+
+fun isRegularFile(filePath: String) Bool {
+    return process.exec("test -f " + utils.shellQuote(filePath)) == 0;
 }
 
 fun processImports(root: toml.Value, cfg: ProjectConfig) {
@@ -82,71 +79,75 @@ fun processDependencies(doc: toml.Document, root: toml.Value, cfg: ProjectConfig
     };
     if depsNode.isTable() {
         var size: Int = depsNode.size();
+        if size == 0 {
+            return;
+        }
         var i: Int = 0;
         while i < size {
             var key: String = depsNode.keyAt(i) or err { return; };
             var depObj: toml.Value = depsNode.valueAt(i) or err { return; };
             if string.len(key) != 0 && depObj.isTable() {
-                var dep: Dependency = new Dependency();
-                dep.name = key;
-                dep.url = tomlString(depObj, "url");
-                dep.version = tomlString(depObj, "version");
-                dep.commit = tomlString(depObj, "commit");
+                var dep: Dependency = Dependency{
+                    name: key,
+                    url: tomlString(depObj, "url"),
+                    version: tomlString(depObj, "version"),
+                    commit: tomlString(depObj, "commit"),
+                };
                 cfg.deps.push(dep);
                 
                 cfg.importMapFlags.push("--import-map");
-                var libPath: String = "./vendor/" + key + "/src/lib";
+                var vendorPath: String = path.join("vendor", key);
+                var libPath: String = path.join(vendorPath, "src/lib");
                 if fs.exists(libPath) {
-                    cfg.importMapFlags.push("@" + key + "=" + libPath);
+                    cfg.importMapFlags.push("@" + key + "=./" + libPath);
                 } else {
                     cfg.importMapFlags.push("@" + key + "=./vendor/" + key + "/src");
                 }
                 
-                // Inherit flags from dependency's thor.toml
-                var depTomlPath: String = "vendor/" + key + "/thor.toml";
-                if fs.exists(depTomlPath) {
-                    var hasDepToml: Bool = true;
+                var depTomlPath: String = path.join(vendorPath, "thor.toml");
+                if isRegularFile(depTomlPath) {
+                    var parsedDepToml: Bool = true;
                     var depDoc: toml.Document = toml.parseFile(depTomlPath) or err {
-                        hasDepToml = false;
-                        doc
+                        parsedDepToml = false;
+                        unsafe { new toml.Document(0 as *Void) }
                     };
-                    if hasDepToml {
-                        var depRoot: toml.Value = depDoc.root();
-                        var depFlags: String = tomlString(depRoot, "flags");
-                        if string.len(depFlags) > 0 {
-                            var current: String = "";
-                            var l_idx: Int = 0;
-                            var flen: Int = string.len(depFlags);
-                            while l_idx <= flen {
-                                var c: Char = ' ';
-                                if l_idx < flen { c = string.at(depFlags, l_idx); }
-                                
-                                if c == ' ' {
-                                    if string.len(current) > 0 {
-                                        var processed: String = current;
-                                        if string.at(current, 0) == '-' {
-                                            if string.len(current) > 2 && string.at(current, 1) == 'L' {
-                                                var pathPart: String = "";
-                                                var j: Int = 2;
-                                                while j < string.len(current) { pathPart = string.pushChar(pathPart, string.at(current, j)); j = j + 1; }
-                                                if string.at(pathPart, 0) != '/' {
-                                                    processed = "-Lvendor/" + key + "/" + pathPart;
-                                                }
+                    if parsedDepToml {
+                    var depRoot: toml.Value = depDoc.root();
+                    var depFlags: String = tomlString(depRoot, "flags");
+                    if string.len(depFlags) > 0 {
+                        var current: String = "";
+                        var l_idx: Int = 0;
+                        var flen: Int = string.len(depFlags);
+                        while l_idx <= flen {
+                            var c: Char = ' ';
+                            if l_idx < flen { c = string.at(depFlags, l_idx); }
+                            
+                            if c == ' ' {
+                                if string.len(current) > 0 {
+                                    var processed: String = current;
+                                    if string.at(current, 0) == '-' {
+                                        if string.len(current) > 2 && string.at(current, 1) == 'L' {
+                                            var pathPart: String = "";
+                                            var j: Int = 2;
+                                            while j < string.len(current) { pathPart = string.pushChar(pathPart, string.at(current, j)); j = j + 1; }
+                                            if string.len(pathPart) != 0 && string.at(pathPart, 0) != '/' {
+                                                processed = "-Lvendor/" + key + "/" + pathPart;
                                             }
-                                        } else if string.at(current, 0) != '/' {
-                                            processed = "vendor/" + key + "/" + current;
                                         }
-                                        if string.len(cfg.flags) > 0 { cfg.flags = cfg.flags + " "; }
-                                        cfg.flags = cfg.flags + processed;
-                                        current = "";
+                                    } else if string.at(current, 0) != '/' {
+                                        processed = "vendor/" + key + "/" + current;
                                     }
-                                } else {
-                                    current = string.pushChar(current, c);
+                                    if string.len(cfg.flags) > 0 { cfg.flags = cfg.flags + " "; }
+                                    cfg.flags = cfg.flags + processed;
+                                    current = "";
                                 }
-                                l_idx = l_idx + 1;
+                            } else {
+                                current = string.pushChar(current, c);
                             }
+                            l_idx = l_idx + 1;
                         }
-                        depDoc.close();
+                    }
+                    depDoc.close();
                     }
                 }
             }

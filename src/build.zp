@@ -55,6 +55,7 @@ pub fun buildProject(options: cli.CliOptions) Int {
     if deps.restoreAndBuildDependencies(cfg) != 0 {
         return 1;
     }
+    cfg = config.loadProjectConfig();
 
     var entry: String = cfg.entry;
     var outputPath: String = config.resolveOutputPath(cfg, options.outputOverride);

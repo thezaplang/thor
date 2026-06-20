@@ -5,11 +5,8 @@ entry   = "src/main.zp"
 flags   = "-Lvendor/zap-toml/lib -lztoml"
 
 [imports]
-"@zap-sfml" = "./vendor/zap-sfml/src/lib"
 "@toml" = "./vendor/zap-toml/src"
 
 
-
 [dependencies]
-"zap-sfml" = { url = "https://github.com/funcieqDEV/zap-sfml", version = "06588a7cf682abd30d30f2c893cac32386c9d250", commit = "06588a7cf682abd30d30f2c893cac32386c9d250" }
-"zap-sfml" = { url = "https://github.com/funcieqDEV/zap-sfml", version = "06588a7cf682abd30d30f2c893cac32386c9d250", commit = "06588a7cf682abd30d30f2c893cac32386c9d250" }
+"zap-toml" = { url = "https://github.com/thezaplang/zap-toml", version = "1053f4d97eff68e45a0027b36b29bd69eaa6ddb1", commit = "1053f4d97eff68e45a0027b36b29bd69eaa6ddb1" }
