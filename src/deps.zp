@@ -41,7 +41,10 @@ pub fun runShellCapture(cmd: String) String {
         return "";
     }
     if fs.exists(tmpFile) {
-        var out: String = fs.readFile(tmpFile);
+        var out: String = fs.readFile(tmpFile) or err {
+            process.exec("rm -f " + tmpFile);
+            return "";
+        };
         process.exec("rm -f " + tmpFile);
         var l: Int = string.len(out);
         if l > 0 && string.at(out, l - 1) == '\n' {
@@ -138,7 +141,10 @@ pub fun addDependency(gitUrl: String) Int {
         return 1;
     }
 
-    fs.mkdirAll("vendor");
+    fs.mkdirAll("vendor") or err {
+        io.eprintln("Failed to create vendor directory");
+        return 1;
+    };
     var vendorPath: String = path.join("vendor", name);
     
     if fs.exists(vendorPath) {
@@ -165,14 +171,17 @@ pub fun addDependency(gitUrl: String) Int {
     }
 
     var tomlPath: String = "thor.toml";
-    var content: String = fs.readFile(tomlPath);
+    var content: String = fs.readFile(tomlPath) or err {
+        io.eprintln("Failed to read " + tomlPath);
+        return 1;
+    };
     
     var newContent: String = insertDepsAndImports(content, name, gitUrl, tag, commit, libPath);
     
-    if fs.writeFile(tomlPath, newContent) != 0 {
+    fs.writeFile(tomlPath, newContent) or err {
         io.eprintln("Failed to write to thor.toml");
         return 1;
-    }
+    };
 
     io.println("Added dependency: " + name + " (" + tag + ")");
     return 0;
@@ -181,7 +190,10 @@ pub fun addDependency(gitUrl: String) Int {
 pub fun restoreAndBuildDependencies(cfg: config.ProjectConfig) Int {
     if cfg.deps.len() == 0 { return 0; }
     
-    fs.mkdirAll("vendor");
+    fs.mkdirAll("vendor") or err {
+        io.eprintln("Failed to create vendor directory");
+        return 1;
+    };
     var i: Int = 0;
     while i < cfg.deps.len() {
         var dep: config.Dependency = cfg.deps.at(i);

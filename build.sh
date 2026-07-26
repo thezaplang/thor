@@ -1,3 +1,6 @@
+#!/usr/bin/env sh
+set -eu
+
 git submodule update --init --recursive
 mkdir -p build
 ./vendor/zap-toml/build_lib.sh

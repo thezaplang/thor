@@ -85,4 +85,5 @@ pub fun appendList(dst: collection.List<String>, src: collection.List<String>) {
         dst.push(src.at(i));
         i = i + 1;
     }
+    return;
 }

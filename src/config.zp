@@ -44,7 +44,16 @@ fun tomlStringInner(root: toml.Value, key: String) String!toml.TomlError {
 }
 
 fun tomlString(root: toml.Value, key: String) String {
-    return tomlStringInner(root, key) or "";
+    var value: String = tomlStringInner(root, key) or err {
+        return "";
+    };
+    return value;
+}
+
+fun valueStringOrEmpty(value: toml.Value) String {
+    return value.asString() or err {
+        return "";
+    };
 }
 
 fun isRegularFile(filePath: String) Bool {
@@ -62,7 +71,7 @@ fun processImports(root: toml.Value, cfg: ProjectConfig) {
             var key: String = imports.keyAt(i) or err { return; };
             var target: toml.Value = imports.valueAt(i) or err { return; };
             if string.len(key) != 0 && target.isString() {
-                var targetPath: String = target.asString() or "";
+                var targetPath: String = valueStringOrEmpty(target);
                 if string.len(targetPath) != 0 {
                     cfg.importMapFlags.push("--import-map");
                     cfg.importMapFlags.push(key + "=" + targetPath);

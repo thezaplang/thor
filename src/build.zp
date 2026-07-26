@@ -12,36 +12,48 @@ import "./deps.zp";
 fun ensureParentDir(filePath: String) Int {
     var parentDir: String = path.parent(filePath);
     if eq(parentDir, ".") || string.len(parentDir) == 0 { return 0; }
-    return fs.mkdirAll(parentDir);
+    fs.mkdirAll(parentDir) or err {
+        return 1;
+    };
+    return 0;
 }
 
-fun buildCommandParts(
+fun appendCommandPart(cmd: String, part: String) String {
+    if string.len(cmd) == 0 { return utils.shellQuote(part); }
+    return cmd + " " + utils.shellQuote(part);
+}
+
+fun appendFlagString(cmd: String, flags: String) String {
+    var flagParts: collection.List<String> = utils.splitFlags(flags);
+    var i: Int = 0;
+    while i < flagParts.len() {
+        cmd = appendCommandPart(cmd, flagParts.at(i));
+        i = i + 1;
+    }
+    return cmd;
+}
+
+fun buildCommand(
     compiler: String,
     entry: String,
     outputPath: String,
     configFlags: String,
-    passthroughFlags: collection.List<String>
-) collection.List<String> {
-    var parts: collection.List<String> = new collection.List<String>();
-    parts.push(compiler);
-
-    var configFlagParts: collection.List<String> = utils.splitFlags(configFlags);
-    utils.appendList(parts, configFlagParts);
-
-    parts.push("-o");
-    parts.push(outputPath);
-    parts.push(entry);
-
-    utils.appendList(parts, passthroughFlags);
-    return parts;
-}
-
-fun joinCommandForShell(parts: collection.List<String>) String {
-    var cmd: String = "";
+    passthroughFlags: collection.List<String>,
+    importMapFlags: collection.List<String>
+) String {
+    var cmd: String = appendCommandPart("", compiler);
+    cmd = appendFlagString(cmd, configFlags);
+    cmd = appendCommandPart(cmd, "-o");
+    cmd = appendCommandPart(cmd, outputPath);
+    cmd = appendCommandPart(cmd, entry);
     var i: Int = 0;
-    while i < parts.len() {
-        if i != 0 { cmd = cmd + " "; }
-        cmd = cmd + utils.shellQuote(parts.at(i));
+    while i < passthroughFlags.len() {
+        cmd = appendCommandPart(cmd, passthroughFlags.at(i));
+        i = i + 1;
+    }
+    i = 0;
+    while i < importMapFlags.len() {
+        cmd = appendCommandPart(cmd, importMapFlags.at(i));
         i = i + 1;
     }
     return cmd;
@@ -84,10 +96,7 @@ pub fun buildProject(options: cli.CliOptions) Int {
         else { effectiveFlags = "-" + normalizedOptimization; }
     }
 
-    utils.appendList(options.passthroughFlags, cfg.importMapFlags);
-
-    var parts: collection.List<String> = buildCommandParts(compiler, entry, outputPath, effectiveFlags, options.passthroughFlags);
-    var cmd: String = joinCommandForShell(parts);
+    var cmd: String = buildCommand(compiler, entry, outputPath, effectiveFlags, options.passthroughFlags, cfg.importMapFlags);
 
     io.println("build: " + cmd);
     return process.exec(cmd);
