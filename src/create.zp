@@ -9,7 +9,7 @@ pub fun scaffoldMainSource(projectName: String) String {
 }
 
 pub fun scaffoldThorToml(projectName: String) String {
-    return "name         = \"" + projectName + "\"\nversion      = \"0.1.0\"\nout          = \"build/\"\nentry        = \"src/main.zp\"\n\n# compiler  = \"zapc\"\n# optimization = \"O0\"\n# flags     = \"\"\n\n# [imports]\n# \"@utils\" = \"./src/utils\"\n";
+    return "name         = \"" + projectName + "\"\nversion      = \"0.1.0\"\nout          = \"build/\"\nentry        = \"src/main.zp\"\n\n# compiler  = \"zapc\"\n# optimization = \"O0\"\n# flags     = \"\"\n\n# before_compile = \"\"\n# after_compile  = \"\"\n\n# [imports]\n# \"@utils\" = \"./src/utils\"\n";
 }
 
 pub fun scaffoldGitignore() String {
