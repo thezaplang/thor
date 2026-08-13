@@ -7,7 +7,7 @@ import "std/string" {eq};
 import "@toml/toml";
 import "./utils.zp";
 
-pub const THOR_VERSION: String = "0.3.0";
+pub const THOR_VERSION: String = "0.4.0";
 
 pub class ProjectConfig {
     pub name: String;
@@ -16,6 +16,8 @@ pub class ProjectConfig {
     pub compiler: String;
     pub flags: String;
     pub optimization: String;
+    pub beforeCompile: String;
+    pub afterCompile: String;
     pub importMapFlags: collection.List<String>;
     pub deps: collection.List<Dependency>;
 
@@ -26,6 +28,8 @@ pub class ProjectConfig {
         self.compiler = "";
         self.flags = "";
         self.optimization = "";
+        self.beforeCompile = "";
+        self.afterCompile = "";
         self.importMapFlags = new collection.List<String>();
         self.deps = new collection.List<Dependency>();
     }
@@ -184,12 +188,14 @@ pub fun loadProjectConfig() ProjectConfig {
     var root: toml.Value = doc.root();
     var cfg: ProjectConfig = new ProjectConfig();
 
-    cfg.name         = tomlString(root, "name");
-    cfg.out          = tomlString(root, "out");
-    cfg.entry        = tomlString(root, "entry");
-    cfg.compiler     = tomlString(root, "compiler");
-    cfg.flags        = tomlString(root, "flags");
-    cfg.optimization = tomlString(root, "optimization");
+    cfg.name          = tomlString(root, "name");
+    cfg.out           = tomlString(root, "out");
+    cfg.entry         = tomlString(root, "entry");
+    cfg.compiler      = tomlString(root, "compiler");
+    cfg.flags         = tomlString(root, "flags");
+    cfg.optimization  = tomlString(root, "optimization");
+    cfg.beforeCompile = tomlString(root, "before_compile");
+    cfg.afterCompile  = tomlString(root, "after_compile");
 
     processImports(root, cfg);
     processDependencies(doc, root, cfg);

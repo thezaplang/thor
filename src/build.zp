@@ -73,6 +73,8 @@ pub fun buildProject(options: cli.CliOptions) Int {
     var outputPath: String = config.resolveOutputPath(cfg, options.outputOverride);
     var compiler: String = config.resolveCompiler(cfg, options.compilerOverride);
     var optimizationFromConfig: String = cfg.optimization;
+    var beforeCompile: String = cfg.beforeCompile;
+    var afterCompile: String = cfg.afterCompile;
 
     if string.len(outputPath) == 0 { io.eprintln("invalid output path"); return 1; }
     if string.len(compiler) == 0 { io.eprintln("invalid compiler path"); return 1; }
@@ -98,8 +100,32 @@ pub fun buildProject(options: cli.CliOptions) Int {
 
     var cmd: String = buildCommand(compiler, entry, outputPath, effectiveFlags, options.passthroughFlags, cfg.importMapFlags);
 
+    if !eq(beforeCompile, "") {
+        io.println("execute: " + beforeCompile);
+        var befCompExit = process.exec(beforeCompile);
+        if befCompExit != 0 {
+            io.println("Failed to execute before_compile command. Exit code: " + toString(befCompExit));
+            return befCompExit;
+        }
+    }
+
     io.println("build: " + cmd);
-    return process.exec(cmd);
+    var exitCode = process.exec(cmd);
+
+    if exitCode != 0 {
+        return exitCode;
+    }
+
+    if !eq(afterCompile, "") {
+        io.println("execute: " + afterCompile);
+        var aftCompExit = process.exec(afterCompile);
+        if aftCompExit != 0 {
+            io.println("Failed to execute after_compile command. Exit code: " + toString(aftCompExit));
+            return aftCompExit;
+        }
+    }
+
+    return exitCode;
 }
 
 pub fun runProject(options: cli.CliOptions) Int {
