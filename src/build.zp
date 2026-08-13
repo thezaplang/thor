@@ -121,9 +121,10 @@ pub fun buildProject(options: cli.CliOptions) Int {
         var aftCompExit = process.exec(afterCompile);
         if aftCompExit != 0 {
             io.println("Failed to execute after_compile command. Exit code: " + toString(aftCompExit));
+            return aftCompExit;
         }
     }
-    
+
     return exitCode;
 }
 

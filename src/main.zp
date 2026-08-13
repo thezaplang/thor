@@ -3,6 +3,7 @@ import "std/process";
 import "std/string" {eq};
 import "./cli.zp";
 import "./build.zp";
+import "./config.zp";
 import "./create.zp";
 import "./deps.zp";
 
@@ -48,7 +49,7 @@ fun main() Int {
     }
 
     if eq(cmd, "--version") {
-        io.println("thor 0.3.0");
+        io.println("thor " + config.THOR_VERSION);
         return 0;
     }
 
