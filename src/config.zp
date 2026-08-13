@@ -7,7 +7,7 @@ import "std/string" {eq};
 import "@toml/toml";
 import "./utils.zp";
 
-pub const THOR_VERSION: String = "0.3.0";
+pub const THOR_VERSION: String = "0.4.0";
 
 pub class ProjectConfig {
     pub name: String;
