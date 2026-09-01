@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Zap v0.4.1's bundled runtime object is not PIE-compatible. Ubuntu's default
+# C compiler links PIE executables, so finish Zap's object build with -no-pie.
+#
+# Unlike the plain version of this wrapper (see ~/zap/test, ~/zap/requests),
+# thor links a native dependency (zap-toml's libztoml.a), so -L/-l flags
+# passed in have to be pulled out of the compile step and forwarded to the
+# final cc link step instead.
+set -euo pipefail
+
+zapc_bin="${ZAPC_BIN:-zapc}"
+runtime_dir="$(dirname "$(command -v "$zapc_bin")")"
+output=""
+compile_args=()
+link_args=()
+
+while (($#)); do
+    case "$1" in
+        -o)
+            [[ $# -ge 2 ]] || { echo "zapc-no-pie: -o requires a path" >&2; exit 2; }
+            output="$2"
+            compile_args+=("-o" "${output}.o")
+            shift 2
+            ;;
+        -L*|-l*)
+            link_args+=("$1")
+            shift
+            ;;
+        *)
+            compile_args+=("$1")
+            shift
+            ;;
+    esac
+done
+
+[[ -n "$output" ]] || { echo "zapc-no-pie: an output path is required" >&2; exit 2; }
+
+"$zapc_bin" -c "${compile_args[@]}"
+/usr/bin/cc -no-pie -o "$output" "${output}.o" "${link_args[@]}" "$runtime_dir/runtime.o" -lssl -lcrypto
+rm -f "${output}.o"
