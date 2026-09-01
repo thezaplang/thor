@@ -11,8 +11,25 @@ pub fun endsWithSlash(value: String) Bool {
     return at(value, len(value) - 1) == '/';
 }
 
+// POSIX single-quote escaping: wrap in '...', and for every literal '
+// inside the value, close the quote, emit an escaped quote, and reopen
+// it ('\'' ). Unlike double-quote wrapping, single quotes suppress all
+// shell expansion ($(...), `...`, $VAR) -- the only character that still
+// needs special handling is the quote character itself.
 pub fun shellQuote(value: String) String {
-    return "\"" + value + "\"";
+    var result: String = "'";
+    var i: Int = 0;
+    while i < len(value) {
+        var c: Char = at(value, i);
+        if c == '\'' {
+            result = result + "'\\''";
+        } else {
+            result = pushChar(result, c);
+        }
+        i = i + 1;
+    }
+    result = result + "'";
+    return result;
 }
 
 pub fun hasSlash(value: String) Bool {

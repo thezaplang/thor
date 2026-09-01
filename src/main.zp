@@ -6,6 +6,7 @@ import "./build.zp";
 import "./config.zp";
 import "./create.zp";
 import "./deps.zp";
+import "./testcmd.zp";
 
 fun main() Int {
     if process.argc() < 2 {
@@ -45,7 +46,36 @@ fun main() Int {
             cli.usage(process.argv(0));
             return 1;
         }
-        return deps.addDependency(process.argv(2));
+        var gitUrl: String = "";
+        var asTestDep: Bool = false;
+        var argIdx: Int = 2;
+        while argIdx < process.argc() {
+            var arg: String = process.argv(argIdx);
+            if eq(arg, "--test") {
+                asTestDep = true;
+            } else if string.len(gitUrl) == 0 {
+                gitUrl = arg;
+            } else {
+                io.eprintln("unexpected argument for add: " + arg);
+                cli.usage(process.argv(0));
+                return 1;
+            }
+            argIdx = argIdx + 1;
+        }
+        if string.len(gitUrl) == 0 {
+            io.eprintln("missing git url");
+            cli.usage(process.argv(0));
+            return 1;
+        }
+        if asTestDep {
+            return deps.addTestDependency(gitUrl);
+        }
+        return deps.addDependency(gitUrl);
+    }
+
+    if eq(cmd, "test") {
+        var options: cli.CliOptions = cli.parseBuildRunOptions(cmd);
+        return testcmd.testProject(options);
     }
 
     if eq(cmd, "--version") {

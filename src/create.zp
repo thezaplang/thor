@@ -3,6 +3,9 @@ import "std/fs";
 import "std/path";
 import "std/string" {eq};
 import "./utils.zp";
+import "./deps.zp";
+
+pub const ZAP_TEST_URL: String = "https://github.com/zap-tooling/zap-test";
 
 pub fun scaffoldMainSource(projectName: String) String {
     return "import \"std/io\";\n\nfun main() Int {\n    io.println(\"hello from " + projectName + "\");\n    return 0;\n}\n";
@@ -14,6 +17,14 @@ pub fun scaffoldThorToml(projectName: String) String {
 
 pub fun scaffoldGitignore() String {
     return "build/\nvendor/\n";
+}
+
+pub fun scaffoldExampleTest() String {
+    return "import \"@zap-test/test\" {TestContext};\n\n" +
+        "@test\n" +
+        "pub fun testExample(t: TestContext) Void {\n" +
+        "    t.assertEqual(2 + 2, 4, \"addition works\");\n" +
+        "}\n";
 }
 
 pub fun createProject(projectName: String) Int {
@@ -28,9 +39,11 @@ pub fun createProject(projectName: String) Int {
 
     var root: String = projectName;
     var srcDir: String = path.join(root, "src");
+    var testDir: String = path.join(root, "test");
     var thorTomlPath: String = path.join(root, "thor.toml");
     var gitignorePath: String = path.join(root, ".gitignore");
     var mainPath: String = path.join(srcDir, "main.zp");
+    var exampleTestPath: String = path.join(testDir, "example_test.zp");
 
     if fs.exists(root) {
         io.eprintln("target already exists: " + root);
@@ -38,6 +51,11 @@ pub fun createProject(projectName: String) Int {
     }
 
     fs.mkdirAll(srcDir) or err {
+        io.eprintln("failed to create project directories");
+        return 1;
+    };
+
+    fs.mkdirAll(testDir) or err {
         io.eprintln("failed to create project directories");
         return 1;
     };
@@ -56,6 +74,17 @@ pub fun createProject(projectName: String) Int {
         io.eprintln("failed to write " + mainPath);
         return 1;
     };
+
+    fs.writeFile(exampleTestPath, scaffoldExampleTest()) or err {
+        io.eprintln("failed to write " + exampleTestPath);
+        return 1;
+    };
+
+    // Non-fatal: the project is still validly scaffolded without it (no
+    // network, e.g.) -- `thor add <url> --test` can add it later.
+    if deps.addTestDependencyInRoot(root, ZAP_TEST_URL) != 0 {
+        io.eprintln("warning: failed to add zap-test as a test dependency (offline?) -- run `thor add " + ZAP_TEST_URL + " --test` inside " + root + " later");
+    }
 
     io.println("created project: " + root);
     return 0;

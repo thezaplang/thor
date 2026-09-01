@@ -20,6 +20,11 @@ pub class ProjectConfig {
     pub afterCompile: String;
     pub importMapFlags: collection.List<String>;
     pub deps: collection.List<Dependency>;
+    // [test-dependencies]: same shape as [dependencies], but kept
+    // entirely separate so `thor build`/`thor run` never see them --
+    // only `thor test` restores and links against these.
+    pub testImportMapFlags: collection.List<String>;
+    pub testDeps: collection.List<Dependency>;
 
     pub fun init() {
         self.name = "";
@@ -32,6 +37,8 @@ pub class ProjectConfig {
         self.afterCompile = "";
         self.importMapFlags = new collection.List<String>();
         self.deps = new collection.List<Dependency>();
+        self.testImportMapFlags = new collection.List<String>();
+        self.testDeps = new collection.List<Dependency>();
     }
 }
 
@@ -169,6 +176,43 @@ fun processDependencies(doc: toml.Document, root: toml.Value, cfg: ProjectConfig
     }
 }
 
+// Simpler than processDependencies: doesn't read the dependency's own
+// thor.toml for extra native-lib flags (-L/-l). Test-only deps needing
+// that are a rare case not worth the complexity here yet -- easy to add
+// later by sharing that part of processDependencies if it comes up.
+fun processTestDependencies(root: toml.Value, cfg: ProjectConfig) {
+    var depsNode: toml.Value = root.get("test-dependencies") or err {
+        return;
+    };
+    if depsNode.isTable() {
+        var size: Int = depsNode.size();
+        var i: Int = 0;
+        while i < size {
+            var key: String = depsNode.keyAt(i) or err { return; };
+            var depObj: toml.Value = depsNode.valueAt(i) or err { return; };
+            if string.len(key) != 0 && depObj.isTable() {
+                var dep: Dependency = Dependency{
+                    name: key,
+                    url: tomlString(depObj, "url"),
+                    version: tomlString(depObj, "version"),
+                    commit: tomlString(depObj, "commit"),
+                };
+                cfg.testDeps.push(dep);
+
+                cfg.testImportMapFlags.push("--import-map");
+                var vendorPath: String = path.join("vendor", key);
+                var libPath: String = path.join(vendorPath, "src/lib");
+                if fs.exists(libPath) {
+                    cfg.testImportMapFlags.push("@" + key + "=./" + libPath);
+                } else {
+                    cfg.testImportMapFlags.push("@" + key + "=./vendor/" + key + "/src");
+                }
+            }
+            i = i + 1;
+        }
+    }
+}
+
 pub fun loadProjectConfig() ProjectConfig {
     if !fs.exists("thor.toml") {
         io.eprintln("missing thor.toml in current directory");
@@ -199,6 +243,7 @@ pub fun loadProjectConfig() ProjectConfig {
 
     processImports(root, cfg);
     processDependencies(doc, root, cfg);
+    processTestDependencies(root, cfg);
 
     doc.close();
     return cfg;

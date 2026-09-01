@@ -1,0 +1,297 @@
+import "std/io";
+import "std/fs";
+import "std/process";
+import "std/collection";
+import "std/string" {eq};
+import "./config.zp";
+import "./utils.zp";
+import "./cli.zp";
+import "./deps.zp";
+import "./build.zp";
+
+// Zap has no closures, so nothing can dynamically collect and call a
+// list of test functions the way pytest/go test do. Instead, this text
+// -scans test/*.zp for `@test`-annotated functions (a generic, un
+// -recognized-by-the-compiler annotation -- confirmed by compiling a
+// repro: it's accepted with only a "warning: unknown attribute" and
+// carries no compiler-level meaning) and generates one small runner
+// program per test *file* that calls its discovered functions by name.
+// One runner per file (not one for the whole suite) so a compile error
+// in one test file doesn't block every other file's tests from running.
+
+struct DiscoveredTests {
+    functionNames: collection.List<String>,
+    // Whatever import statement the test file itself uses to bring
+    // `TestContext` into scope, copied verbatim into the generated
+    // runner -- works for both an alias-based import (a real
+    // [test-dependencies] consumer: `import "@zap-test/test"
+    // {TestContext};`) and a relative one (zap-test's own self-tests:
+    // `import "../src/test.zp" {TestContext};`), since the generated
+    // runner is written into the *same directory* as the original test
+    // file (see testProject below), so a relative import resolves
+    // identically either way. Empty if no such import line was found.
+    contextImportLine: String,
+}
+
+fun splitLines(content: String) collection.List<String> {
+    var lines: collection.List<String> = new collection.List<String>();
+    var current: String = "";
+    var i: Int = 0;
+    while i < string.len(content) {
+        var c: Char = string.at(content, i);
+        if c == '\n' {
+            lines.push(current);
+            current = "";
+        } else if c != '\r' {
+            current = string.pushChar(current, c);
+        }
+        i = i + 1;
+    }
+    if string.len(current) != 0 {
+        lines.push(current);
+    }
+    return lines;
+}
+
+fun trimSpaces(value: String) String {
+    var start: Int = 0;
+    var end: Int = string.len(value);
+    while start < end && utils.isWhitespace(string.at(value, start)) { start = start + 1; }
+    while end > start && utils.isWhitespace(string.at(value, end - 1)) { end = end - 1; }
+    var result: String = "";
+    var i: Int = start;
+    while i < end {
+        result = string.pushChar(result, string.at(value, i));
+        i = i + 1;
+    }
+    return result;
+}
+
+fun containsSubstring(haystack: String, needle: String) Bool {
+    var hLen: Int = string.len(haystack);
+    var nLen: Int = string.len(needle);
+    if nLen == 0 { return true; }
+    if nLen > hLen { return false; }
+    var i: Int = 0;
+    while i <= hLen - nLen {
+        var j: Int = 0;
+        while j < nLen && string.at(haystack, i + j) == string.at(needle, j) { j = j + 1; }
+        if j == nLen { return true; }
+        i = i + 1;
+    }
+    return false;
+}
+
+// Extracts NAME from a (trimmed) line shaped like
+// `pub fun NAME(param: TestContext) Void {` -- returns "" if the line
+// doesn't start with "pub fun ".
+fun extractFunctionName(rawLine: String) String {
+    var line: String = trimSpaces(rawLine);
+    var marker: String = "pub fun ";
+    var markerLen: Int = string.len(marker);
+    if string.len(line) < markerLen { return ""; }
+    var i: Int = 0;
+    while i < markerLen {
+        if string.at(line, i) != string.at(marker, i) { return ""; }
+        i = i + 1;
+    }
+    var name: String = "";
+    while i < string.len(line) {
+        var c: Char = string.at(line, i);
+        if c == '(' { break; }
+        if c != ' ' { name = string.pushChar(name, c); }
+        i = i + 1;
+    }
+    return name;
+}
+
+fun discoverTests(filePath: String) DiscoveredTests {
+    var names: collection.List<String> = new collection.List<String>();
+    var contextImportLine: String = "";
+    var content: String = fs.readFile(filePath) or err {
+        return DiscoveredTests { functionNames: names, contextImportLine: contextImportLine };
+    };
+    var lines: collection.List<String> = splitLines(content);
+    var i: Int = 0;
+    while i < lines.len() {
+        var trimmed: String = trimSpaces(lines.at(i));
+        if string.len(contextImportLine) == 0 && containsSubstring(trimmed, "import") && containsSubstring(trimmed, "TestContext") {
+            contextImportLine = trimmed;
+        }
+        if eq(trimmed, "@test") {
+            var j: Int = i + 1;
+            while j < lines.len() && string.len(trimSpaces(lines.at(j))) == 0 {
+                j = j + 1;
+            }
+            if j < lines.len() {
+                var name: String = extractFunctionName(lines.at(j));
+                if string.len(name) != 0 {
+                    names.push(name);
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return DiscoveredTests { functionNames: names, contextImportLine: contextImportLine };
+}
+
+// "test/foo_test.zp" -> "foo_test"
+fun fileStem(filePath: String) String {
+    var i: Int = string.len(filePath) - 1;
+    while i >= 0 && string.at(filePath, i) != '/' { i = i - 1; }
+    var name: String = "";
+    var j: Int = i + 1;
+    while j < string.len(filePath) {
+        name = string.pushChar(name, string.at(filePath, j));
+        j = j + 1;
+    }
+    if string.len(name) > 3 {
+        var end: Int = string.len(name);
+        if string.at(name, end - 3) == '.' && string.at(name, end - 2) == 'z' && string.at(name, end - 1) == 'p' {
+            var clean: String = "";
+            var k: Int = 0;
+            while k < end - 3 {
+                clean = string.pushChar(clean, string.at(name, k));
+                k = k + 1;
+            }
+            return clean;
+        }
+    }
+    return name;
+}
+
+// Besides the existing human-readable "--- fn ---" / assertion prose
+// (unchanged, still printed by TestContext itself), each generated
+// runner now also emits two kinds of machine-parseable lines, so a tool
+// (e.g. a VSCode Test Explorer bridge) doesn't have to scrape prose:
+//
+//   THOR_TEST_PLAN <fileStem> <count>
+//       once, before any test runs -- the number of functions this
+//       runner is about to call. A consumer that sees fewer
+//       THOR_TEST_RESULT lines than <count> by the time the process
+//       exits knows a test crashed/hung the process rather than failed
+//       normally (TestContext has no way to report that itself, since a
+//       panic/abort never returns to Zap code at all).
+//
+//   THOR_TEST_RESULT <fnName> <PASS|FAIL> <passDelta> <failDelta>
+//       once per function that actually returns, computed from the
+//       shared TestContext's passCount()/failCount() before and after
+//       the call -- TestContext itself stays untouched (no per-function
+//       API), this just diffs the running totals around each call.
+fun generateRunnerSource(fileStemName: String, aliasName: String, contextImportLine: String, functionNames: collection.List<String>) String {
+    var src: String = "import \"std/io\";\n";
+    src = src + contextImportLine + "\n";
+    src = src + "import \"@" + aliasName + "/" + fileStemName + "\";\n\n";
+    src = src + "fun main() Int {\n";
+    src = src + "    var t: TestContext = new TestContext();\n";
+    src = src + "    io.println(\"THOR_TEST_PLAN " + fileStemName + " " + toString(functionNames.len()) + "\");\n";
+    var i: Int = 0;
+    while i < functionNames.len() {
+        var fn: String = functionNames.at(i);
+        var idx: String = toString(i);
+        src = src + "    io.println(\"--- " + fn + " ---\");\n";
+        src = src + "    var p" + idx + ": Int = t.passCount();\n";
+        src = src + "    var f" + idx + ": Int = t.failCount();\n";
+        src = src + "    " + fileStemName + "." + fn + "(t);\n";
+        src = src + "    var pd" + idx + ": Int = t.passCount() - p" + idx + ";\n";
+        src = src + "    var fd" + idx + ": Int = t.failCount() - f" + idx + ";\n";
+        src = src + "    io.println(\"THOR_TEST_RESULT " + fn + " \" + (fd" + idx + " > 0 ? \"FAIL\" : \"PASS\") + \" \" + toString(pd" + idx + ") + \" \" + toString(fd" + idx + "));\n";
+        i = i + 1;
+    }
+    src = src + "    return t.report();\n";
+    src = src + "}\n";
+    return src;
+}
+
+pub fun testProject(options: cli.CliOptions) Int {
+    var cfg: config.ProjectConfig = config.loadProjectConfig();
+    if deps.restoreAndBuildDependencies(cfg) != 0 { return 1; }
+    if deps.restoreTestDependencies(cfg) != 0 { return 1; }
+    cfg = config.loadProjectConfig();
+
+    var compiler: String = config.resolveCompiler(cfg, options.compilerOverride);
+
+    var listing: String = deps.runShellCapture("ls -1 test/*.zp 2>/dev/null");
+    var files: collection.List<String> = splitLines(listing);
+
+    if files.len() == 0 {
+        io.println("no test files found under test/");
+        return 0;
+    }
+
+    fs.mkdirAll("build/test") or err {
+        io.eprintln("failed to create build/test directory");
+        return 1;
+    };
+
+    var totalFiles: Int = 0;
+    var passedFiles: Int = 0;
+    var i: Int = 0;
+    while i < files.len() {
+        var filePath: String = files.at(i);
+        i = i + 1;
+        if string.len(filePath) == 0 { continue; }
+
+        var discovered: DiscoveredTests = discoverTests(filePath);
+        if discovered.functionNames.len() == 0 { continue; }
+
+        totalFiles = totalFiles + 1;
+
+        if string.len(discovered.contextImportLine) == 0 {
+            io.println("FAIL " + filePath + " (no TestContext import found -- add `import \"@zap-test/test\" {TestContext};` or similar)");
+            continue;
+        }
+
+        var stem: String = fileStem(filePath);
+        var aliasName: String = "__thor_test_" + stem;
+        var runnerSrc: String = generateRunnerSource(stem, aliasName, discovered.contextImportLine, discovered.functionNames);
+        // Written into test/ itself (not build/), right alongside the
+        // original file, so a relative import in contextImportLine
+        // resolves exactly like it does for the real test file.
+        var runnerPath: String = "test/." + stem + ".thor_generated_main.zp";
+        var outputPath: String = "build/test/" + stem;
+
+        fs.writeFile(runnerPath, runnerSrc) or err {
+            io.eprintln("failed to write generated runner for " + filePath);
+            continue;
+        };
+
+        var importMapFlags: collection.List<String> = new collection.List<String>();
+        var k: Int = 0;
+        while k < cfg.importMapFlags.len() {
+            importMapFlags.push(cfg.importMapFlags.at(k));
+            k = k + 1;
+        }
+        k = 0;
+        while k < cfg.testImportMapFlags.len() {
+            importMapFlags.push(cfg.testImportMapFlags.at(k));
+            k = k + 1;
+        }
+        importMapFlags.push("--import-map");
+        importMapFlags.push("@" + aliasName + "=./test");
+
+        var cmd: String = build.buildCommand(compiler, runnerPath, outputPath, cfg.flags, options.passthroughFlags, importMapFlags);
+        io.println("compiling: " + filePath);
+        var compileExit: Int = process.exec(cmd);
+        process.exec("rm -f " + utils.shellQuote(runnerPath));
+        if compileExit != 0 {
+            io.println("FAIL " + filePath + " (compile error)");
+            continue;
+        }
+
+        var runPath: String = outputPath;
+        if !utils.hasSlash(runPath) { runPath = "./" + runPath; }
+        var runExit: Int = process.exec(utils.shellQuote(runPath));
+        if runExit == 0 {
+            io.println("PASS " + filePath);
+            passedFiles = passedFiles + 1;
+        } else {
+            io.println("FAIL " + filePath);
+        }
+    }
+
+    io.println("");
+    io.println(toString(passedFiles) + "/" + toString(totalFiles) + " test files passed");
+    if passedFiles == totalFiles { return 0; }
+    return 1;
+}

@@ -63,7 +63,7 @@ pub fun runShellCapture(cmd: String) String {
 
 
 
-fun insertDepsAndImports(content: String, name: String, gitUrl: String, tag: String, commit: String, libPath: String) String {
+fun splitLinesKeepAll(content: String) collection.List<String> {
     var lines: collection.List<String> = new collection.List<String>();
     var current: String = "";
     var i: Int = 0;
@@ -80,73 +80,102 @@ fun insertDepsAndImports(content: String, name: String, gitUrl: String, tag: Str
     if string.len(current) != 0 {
         lines.push(current);
     }
+    return lines;
+}
 
-    var hasImports: Bool = false;
-    var hasDeps: Bool = false;
-
-    i = 0;
-    while i < lines.len() {
-        var l: String = lines.at(i);
-        if eq(l, "[imports]") { hasImports = true; }
-        if eq(l, "[dependencies]") { hasDeps = true; }
-        i = i + 1;
-    }
-
-    var depLine: String = "\"" + name + "\" = { url = \"" + gitUrl + "\", version = \"" + tag + "\", commit = \"" + commit + "\" }";
-    var importLine: String = "\"@" + name + "\" = \"" + libPath + "\"";
-
-    var newLines: collection.List<String> = new collection.List<String>();
-    var addedImport: Bool = !hasImports;
-    var addedDep: Bool = !hasDeps;
-    
-    i = 0;
-    while i < lines.len() {
-        var l: String = lines.at(i);
-        newLines.push(l);
-        if eq(l, "[imports]") && !addedImport {
-            newLines.push(importLine);
-            addedImport = true;
-        }
-        if eq(l, "[dependencies]") && !addedDep {
-            newLines.push(depLine);
-            addedDep = true;
-        }
-        i = i + 1;
-    }
-
-    if !hasImports {
-        newLines.push("");
-        newLines.push("[imports]");
-        newLines.push(importLine);
-    }
-    if !hasDeps {
-        newLines.push("");
-        newLines.push("[dependencies]");
-        newLines.push(depLine);
-    }
-
+fun joinLines(lines: collection.List<String>) String {
     var res: String = "";
-    i = 0;
-    while i < newLines.len() {
-        res = res + newLines.at(i) + "\n";
+    var i: Int = 0;
+    while i < lines.len() {
+        res = res + lines.at(i) + "\n";
         i = i + 1;
     }
     return res;
 }
 
-pub fun addDependency(gitUrl: String) Int {
+// Ensures `[sectionHeader]` exists in `content` and appends `line` under
+// it (creating the section at the end of the file if it wasn't there).
+fun insertTableEntry(content: String, sectionHeader: String, line: String) String {
+    var lines: collection.List<String> = splitLinesKeepAll(content);
+
+    var hasSection: Bool = false;
+    var i: Int = 0;
+    while i < lines.len() {
+        if eq(lines.at(i), sectionHeader) { hasSection = true; }
+        i = i + 1;
+    }
+
+    var newLines: collection.List<String> = new collection.List<String>();
+    var added: Bool = !hasSection;
+
+    i = 0;
+    while i < lines.len() {
+        var l: String = lines.at(i);
+        newLines.push(l);
+        if eq(l, sectionHeader) && !added {
+            newLines.push(line);
+            added = true;
+        }
+        i = i + 1;
+    }
+
+    if !hasSection {
+        newLines.push("");
+        newLines.push(sectionHeader);
+        newLines.push(line);
+    }
+
+    return joinLines(newLines);
+}
+
+fun insertDepsAndImports(content: String, name: String, gitUrl: String, tag: String, commit: String, libPath: String) String {
+    var depLine: String = "\"" + name + "\" = { url = \"" + gitUrl + "\", version = \"" + tag + "\", commit = \"" + commit + "\" }";
+    var importLine: String = "\"@" + name + "\" = \"" + libPath + "\"";
+
+    var withImport: String = insertTableEntry(content, "[imports]", importLine);
+    return insertTableEntry(withImport, "[dependencies]", depLine);
+}
+
+// [test-dependencies] also gets a matching [imports] entry, same as
+// [dependencies] does via insertDepsAndImports. config.zp's
+// processTestDependencies auto-derives this same alias for `thor test`'s
+// own zapc invocation regardless, but zap-lsp is a separate binary that
+// only ever reads the literal [imports] table -- it has no idea
+// [test-dependencies] exists. Without a real [imports] line, every file
+// importing this alias shows phantom "import path not found" /
+// "Undefined identifier" errors in the editor even though `thor test`
+// compiles it fine (confirmed by probing zap-lsp directly). This is safe
+// for `thor build`/`thor run`: an [imports] entry only feeds zapc's
+// --import-map, which zapc consults when an import actually resolves to
+// that alias -- an unused entry (or one whose target doesn't exist yet)
+// is inert, so this can't leak a test-only dependency into a production
+// binary that never imports it.
+fun insertTestDependency(content: String, name: String, gitUrl: String, tag: String, commit: String, libPath: String) String {
+    var depLine: String = "\"" + name + "\" = { url = \"" + gitUrl + "\", version = \"" + tag + "\", commit = \"" + commit + "\" }";
+    var importLine: String = "\"@" + name + "\" = \"" + libPath + "\"";
+    var withImport: String = insertTableEntry(content, "[imports]", importLine);
+    return insertTableEntry(withImport, "[test-dependencies]", depLine);
+}
+
+// projectRoot: "" operates relative to the CWD (the normal `thor add`
+// case); a real path lets `thor new` add a dependency into a project
+// it just scaffolded elsewhere, without needing any chdir primitive
+// (Zap's std/process doesn't expose one) -- every path used here is
+// just explicitly joined under projectRoot instead.
+fun addDependencyInternal(projectRoot: String, gitUrl: String, asTestDep: Bool) Int {
     var name: String = extractNameFromUrl(gitUrl);
     if string.len(name) == 0 {
         io.eprintln("Invalid git URL");
         return 1;
     }
 
-    fs.mkdirAll("vendor") or err {
+    var vendorDir: String = path.join(projectRoot, "vendor");
+    fs.mkdirAll(vendorDir) or err {
         io.eprintln("Failed to create vendor directory");
         return 1;
     };
-    var vendorPath: String = path.join("vendor", name);
-    
+    var vendorPath: String = path.join(vendorDir, name);
+
     if fs.exists(vendorPath) {
         io.println("Dependency " + name + " already exists in vendor/");
     } else {
@@ -157,48 +186,70 @@ pub fun addDependency(gitUrl: String) Int {
         }
     }
 
-    var cwd: String = runShellCapture("pwd");
     var commit: String = runShellCapture("cd " + utils.shellQuote(vendorPath) + " && git rev-parse HEAD");
     var tag: String = runShellCapture("cd " + utils.shellQuote(vendorPath) + " && git describe --tags --abbrev=0 2>/dev/null");
-    
+
     if string.len(tag) == 0 {
         tag = commit;
     }
+
+    var tomlPath: String = path.join(projectRoot, "thor.toml");
+    var content: String = fs.readFile(tomlPath) or err {
+        io.eprintln("Failed to read " + tomlPath);
+        return 1;
+    };
 
     var libPath: String = "./vendor/" + name + "/src/lib";
     if !fs.exists(vendorPath + "/src/lib") {
         libPath = "./vendor/" + name + "/src";
     }
 
-    var tomlPath: String = "thor.toml";
-    var content: String = fs.readFile(tomlPath) or err {
-        io.eprintln("Failed to read " + tomlPath);
-        return 1;
-    };
-    
-    var newContent: String = insertDepsAndImports(content, name, gitUrl, tag, commit, libPath);
-    
+    var newContent: String;
+    if asTestDep {
+        newContent = insertTestDependency(content, name, gitUrl, tag, commit, libPath);
+    } else {
+        newContent = insertDepsAndImports(content, name, gitUrl, tag, commit, libPath);
+    }
+
     fs.writeFile(tomlPath, newContent) or err {
         io.eprintln("Failed to write to thor.toml");
         return 1;
     };
 
-    io.println("Added dependency: " + name + " (" + tag + ")");
+    if asTestDep {
+        io.println("Added test dependency: " + name + " (" + tag + ")");
+    } else {
+        io.println("Added dependency: " + name + " (" + tag + ")");
+    }
     return 0;
 }
 
-pub fun restoreAndBuildDependencies(cfg: config.ProjectConfig) Int {
-    if cfg.deps.len() == 0 { return 0; }
-    
+pub fun addDependency(gitUrl: String) Int {
+    return addDependencyInternal("", gitUrl, false);
+}
+
+pub fun addTestDependency(gitUrl: String) Int {
+    return addDependencyInternal("", gitUrl, true);
+}
+
+// Used by `thor new` to wire zap-test into a project it just scaffolded
+// elsewhere -- projectRoot is that project's directory, not the CWD.
+pub fun addTestDependencyInRoot(projectRoot: String, gitUrl: String) Int {
+    return addDependencyInternal(projectRoot, gitUrl, true);
+}
+
+fun restoreDependencyList(deps: collection.List<config.Dependency>) Int {
+    if deps.len() == 0 { return 0; }
+
     fs.mkdirAll("vendor") or err {
         io.eprintln("Failed to create vendor directory");
         return 1;
     };
     var i: Int = 0;
-    while i < cfg.deps.len() {
-        var dep: config.Dependency = cfg.deps.at(i);
+    while i < deps.len() {
+        var dep: config.Dependency = deps.at(i);
         var vendorPath: String = path.join("vendor", dep.name);
-        
+
         if !fs.exists(vendorPath) {
             io.println("Restoring dependency " + dep.name + "...");
             if process.exec("git clone --recursive " + utils.shellQuote(dep.url) + " " + utils.shellQuote(vendorPath)) != 0 {
@@ -210,7 +261,7 @@ pub fun restoreAndBuildDependencies(cfg: config.ProjectConfig) Int {
             }
             process.exec("cd " + utils.shellQuote(vendorPath) + " && git submodule update --init --recursive");
         }
-        
+
         var buildScript: String = path.join(vendorPath, "build.sh");
         if fs.exists(buildScript) {
             io.println("Running build.sh for " + dep.name + "...");
@@ -222,4 +273,14 @@ pub fun restoreAndBuildDependencies(cfg: config.ProjectConfig) Int {
         i = i + 1;
     }
     return 0;
+}
+
+pub fun restoreAndBuildDependencies(cfg: config.ProjectConfig) Int {
+    return restoreDependencyList(cfg.deps);
+}
+
+// Only called from `thor test` -- [test-dependencies] never gets
+// restored (or linked) for `thor build`/`thor run`.
+pub fun restoreTestDependencies(cfg: config.ProjectConfig) Int {
+    return restoreDependencyList(cfg.testDeps);
 }
