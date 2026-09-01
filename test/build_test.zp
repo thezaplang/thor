@@ -1,0 +1,74 @@
+// Unit tests for src/build.zp's buildCommand -- the pure function that
+// assembles the shell command line thor hands to the compiler. Every
+// token thor passes through is expected to be individually
+// shell-quoted (see utils_test.zp for shellQuote itself), joined by
+// single spaces, in the order: compiler, config flags, "-o", output
+// path, entry, passthrough flags, import-map flags.
+
+import "@zap-test/test" {TestContext};
+import "../src/build.zp" as build;
+import "std/collection";
+
+@test
+pub fun testBuildCommandMinimal(t: TestContext) Void {
+    var passthrough: collection.List<String> = new collection.List<String>();
+    var importMap: collection.List<String> = new collection.List<String>();
+    var cmd: String = build.buildCommand("zapc", "src/main.zp", "build/app", "", passthrough, importMap);
+    t.assertEqual(cmd, "'zapc' '-o' 'build/app' 'src/main.zp'", "minimal invocation with no flags at all");
+}
+
+@test
+pub fun testBuildCommandWithConfigFlags(t: TestContext) Void {
+    var passthrough: collection.List<String> = new collection.List<String>();
+    var importMap: collection.List<String> = new collection.List<String>();
+    var cmd: String = build.buildCommand("zapc", "src/main.zp", "build/app", "-O2 -g", passthrough, importMap);
+    t.assertEqual(cmd, "'zapc' '-O2' '-g' '-o' 'build/app' 'src/main.zp'", "config flags are tokenized and inserted before -o");
+}
+
+@test
+pub fun testBuildCommandWithPassthroughFlags(t: TestContext) Void {
+    var passthrough: collection.List<String> = new collection.List<String>();
+    passthrough.push("--emit-ir");
+    passthrough.push("-v");
+    var importMap: collection.List<String> = new collection.List<String>();
+    var cmd: String = build.buildCommand("zapc", "src/main.zp", "build/app", "", passthrough, importMap);
+    t.assertEqual(cmd, "'zapc' '-o' 'build/app' 'src/main.zp' '--emit-ir' '-v'", "passthrough flags (after --) are appended after the entry file");
+}
+
+@test
+pub fun testBuildCommandWithImportMapFlags(t: TestContext) Void {
+    var passthrough: collection.List<String> = new collection.List<String>();
+    var importMap: collection.List<String> = new collection.List<String>();
+    importMap.push("--import-map");
+    importMap.push("@toml=./vendor/zap-toml/src");
+    var cmd: String = build.buildCommand("zapc", "src/main.zp", "build/app", "", passthrough, importMap);
+    t.assertEqual(cmd, "'zapc' '-o' 'build/app' 'src/main.zp' '--import-map' '@toml=./vendor/zap-toml/src'", "import-map flags are appended last, after passthrough flags");
+}
+
+@test
+pub fun testBuildCommandFullCombination(t: TestContext) Void {
+    var passthrough: collection.List<String> = new collection.List<String>();
+    passthrough.push("--emit-ir");
+    var importMap: collection.List<String> = new collection.List<String>();
+    importMap.push("--import-map");
+    importMap.push("@toml=./vendor/zap-toml/src");
+    var cmd: String = build.buildCommand("tools/zapc-no-pie", "src/main.zp", "build/thor", "-O2", passthrough, importMap);
+    var expected: String = "'tools/zapc-no-pie' '-O2' '-o' 'build/thor' 'src/main.zp' '--emit-ir' '--import-map' '@toml=./vendor/zap-toml/src'";
+    t.assertEqual(cmd, expected, "compiler, config flags, -o/output, entry, passthrough, then import-map, in that fixed order");
+}
+
+@test
+pub fun testBuildCommandQuotesValuesContainingSpaces(t: TestContext) Void {
+    var passthrough: collection.List<String> = new collection.List<String>();
+    var importMap: collection.List<String> = new collection.List<String>();
+    var cmd: String = build.buildCommand("zapc", "src/my file.zp", "build/app", "", passthrough, importMap);
+    t.assertEqual(cmd, "'zapc' '-o' 'build/app' 'src/my file.zp'", "a path containing a space is safely single-quoted as one token");
+}
+
+@test
+pub fun testBuildCommandQuotesEmbeddedSingleQuote(t: TestContext) Void {
+    var passthrough: collection.List<String> = new collection.List<String>();
+    var importMap: collection.List<String> = new collection.List<String>();
+    var cmd: String = build.buildCommand("zapc", "src/main.zp", "build/o'brien", "", passthrough, importMap);
+    t.assertEqual(cmd, "'zapc' '-o' 'build/o'\\''brien' 'src/main.zp'", "an embedded single quote in a value is escaped via close-escape-reopen");
+}
