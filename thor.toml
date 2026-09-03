@@ -1,12 +1,17 @@
-name    = "thor"
-version = "0.3.0"
-out     = "build/"
-entry   = "src/main.zp"
-flags   = "-Lvendor/zap-toml/lib -lztoml"
+name     = "thor"
+version  = "0.3.0"
+out      = "build/"
+entry    = "src/main.zp"
+compiler = "tools/zapc-no-pie"
+flags    = "-Lvendor/zap-toml/lib -lztoml"
 
 [imports]
 "@toml" = "./vendor/zap-toml/src"
+"@zap-test" = "./vendor/zap-test/src"
 
 
 [dependencies]
 "zap-toml" = { url = "https://github.com/thezaplang/zap-toml", version = "1053f4d97eff68e45a0027b36b29bd69eaa6ddb1", commit = "1053f4d97eff68e45a0027b36b29bd69eaa6ddb1" }
+
+[test-dependencies]
+"zap-test" = { url = "https://github.com/zap-tooling/zap-test", version = "71f04437ee58c0dc34a6c576b75ef32a4bcf0626", commit = "71f04437ee58c0dc34a6c576b75ef32a4bcf0626" }

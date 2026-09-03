@@ -1,0 +1,128 @@
+// Unit tests for the pure parts of src/config.zp: normalizeOptimization,
+// resolveOutputPath, resolveCompiler, and validateBuildConfig. Skips
+// loadProjectConfig itself, since it reads thor.toml straight from the
+// process's current directory and calls process.exit() on every error
+// path -- not something an in-process unit test can isolate safely.
+// That surface is covered by the shell-driven integration suite instead
+// (test/integration/run_integration_tests.sh).
+
+import "@zap-test/test" {TestContext};
+import "../src/config.zp" as config;
+
+@test
+pub fun testNormalizeOptimizationPlainForms(t: TestContext) Void {
+    t.assertEqual(config.normalizeOptimization(""), "", "empty string normalizes to empty (no override)");
+    t.assertEqual(config.normalizeOptimization("O0"), "O0", "O0 passes through");
+    t.assertEqual(config.normalizeOptimization("O1"), "O1", "O1 passes through");
+    t.assertEqual(config.normalizeOptimization("O2"), "O2", "O2 passes through");
+    t.assertEqual(config.normalizeOptimization("O3"), "O3", "O3 passes through");
+}
+
+@test
+pub fun testNormalizeOptimizationZeroPaddedForms(t: TestContext) Void {
+    t.assertEqual(config.normalizeOptimization("O00"), "O0", "O00 normalizes to O0");
+    t.assertEqual(config.normalizeOptimization("O01"), "O1", "O01 normalizes to O1");
+    t.assertEqual(config.normalizeOptimization("O02"), "O2", "O02 normalizes to O2");
+    t.assertEqual(config.normalizeOptimization("O03"), "O3", "O03 normalizes to O3");
+}
+
+@test
+pub fun testNormalizeOptimizationDashForms(t: TestContext) Void {
+    t.assertEqual(config.normalizeOptimization("-O"), "O2", "bare -O defaults to O2");
+    t.assertEqual(config.normalizeOptimization("-O0"), "O0", "-O0 normalizes to O0");
+    t.assertEqual(config.normalizeOptimization("-O1"), "O1", "-O1 normalizes to O1");
+    t.assertEqual(config.normalizeOptimization("-O2"), "O2", "-O2 normalizes to O2");
+    t.assertEqual(config.normalizeOptimization("-O3"), "O3", "-O3 normalizes to O3");
+}
+
+@test
+pub fun testNormalizeOptimizationDashZeroPaddedForms(t: TestContext) Void {
+    t.assertEqual(config.normalizeOptimization("-O00"), "O0", "-O00 normalizes to O0");
+    t.assertEqual(config.normalizeOptimization("-O01"), "O1", "-O01 normalizes to O1");
+    t.assertEqual(config.normalizeOptimization("-O02"), "O2", "-O02 normalizes to O2");
+    t.assertEqual(config.normalizeOptimization("-O03"), "O3", "-O03 normalizes to O3");
+}
+
+@test
+pub fun testNormalizeOptimizationInvalid(t: TestContext) Void {
+    t.assertEqual(config.normalizeOptimization("O4"), "", "out-of-range level rejected");
+    t.assertEqual(config.normalizeOptimization("-O4"), "", "out-of-range dashed level rejected");
+    t.assertEqual(config.normalizeOptimization("garbage"), "", "unrelated string rejected");
+    t.assertEqual(config.normalizeOptimization("O"), "", "bare O with no digit rejected");
+    t.assertEqual(config.normalizeOptimization("-O000"), "", "too many digits rejected");
+}
+
+@test
+pub fun testResolveOutputPathOverrideWins(t: TestContext) Void {
+    var cfg: config.ProjectConfig = new config.ProjectConfig();
+    cfg.name = "proj";
+    cfg.out = "dist/";
+    t.assertEqual(config.resolveOutputPath(cfg, "custom/path"), "custom/path", "explicit -o override always wins over thor.toml");
+}
+
+@test
+pub fun testResolveOutputPathDefaults(t: TestContext) Void {
+    var empty: config.ProjectConfig = new config.ProjectConfig();
+    t.assertEqual(config.resolveOutputPath(empty, ""), "app", "empty name and empty out falls back to 'app'");
+
+    var namedOnly: config.ProjectConfig = new config.ProjectConfig();
+    namedOnly.name = "proj";
+    t.assertEqual(config.resolveOutputPath(namedOnly, ""), "proj", "empty out falls back to the bare project name");
+}
+
+@test
+pub fun testResolveOutputPathWithOutDirectory(t: TestContext) Void {
+    var cfg: config.ProjectConfig = new config.ProjectConfig();
+    cfg.name = "proj";
+    cfg.out = "dist/";
+    t.assertEqual(config.resolveOutputPath(cfg, ""), "dist/proj", "trailing-slash out is joined with the project name");
+}
+
+@test
+pub fun testResolveOutputPathWithOutFilePath(t: TestContext) Void {
+    // Documented current behavior: when `out` does NOT end in a slash,
+    // it is treated as a full file path and returned verbatim -- the
+    // project name is ignored entirely in that case.
+    var cfg: config.ProjectConfig = new config.ProjectConfig();
+    cfg.name = "proj";
+    cfg.out = "dist/renamed-binary";
+    t.assertEqual(config.resolveOutputPath(cfg, ""), "dist/renamed-binary", "out without a trailing slash is used verbatim, ignoring name");
+}
+
+@test
+pub fun testResolveCompiler(t: TestContext) Void {
+    var cfg: config.ProjectConfig = new config.ProjectConfig();
+    t.assertEqual(config.resolveCompiler(cfg, ""), "zapc", "falls back to 'zapc' when nothing else is set");
+
+    cfg.compiler = "tools/zapc-no-pie";
+    t.assertEqual(config.resolveCompiler(cfg, ""), "tools/zapc-no-pie", "falls back to thor.toml's compiler field");
+
+    t.assertEqual(config.resolveCompiler(cfg, "/custom/zapc"), "/custom/zapc", "--compiler override wins over thor.toml's compiler field");
+}
+
+@test
+pub fun testValidateBuildConfigEmptyEntry(t: TestContext) Void {
+    var cfg: config.ProjectConfig = new config.ProjectConfig();
+    t.assertEqual(config.validateBuildConfig(cfg), 1, "empty entry is rejected");
+}
+
+@test
+pub fun testValidateBuildConfigMissingEntry(t: TestContext) Void {
+    var cfg: config.ProjectConfig = new config.ProjectConfig();
+    cfg.entry = "test/fixtures/does_not_exist.zp";
+    t.assertEqual(config.validateBuildConfig(cfg), 1, "nonexistent entry path is rejected");
+}
+
+@test
+pub fun testValidateBuildConfigEntryIsDirectory(t: TestContext) Void {
+    var cfg: config.ProjectConfig = new config.ProjectConfig();
+    cfg.entry = "test/fixtures";
+    t.assertEqual(config.validateBuildConfig(cfg), 1, "a directory is rejected as an entry path");
+}
+
+@test
+pub fun testValidateBuildConfigValidEntry(t: TestContext) Void {
+    var cfg: config.ProjectConfig = new config.ProjectConfig();
+    cfg.entry = "test/fixtures/dummy_entry.zp";
+    t.assertEqual(config.validateBuildConfig(cfg), 0, "an existing file entry is accepted");
+}

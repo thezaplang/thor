@@ -67,6 +67,28 @@ thor add <github_url>
 
 ```
 
+Add `--test` to wire it into `[test-dependencies]` instead (only restored
+and linked by `thor test`, never by `thor build`/`thor run`).
+
+## Testing
+
+```bash
+thor test
+```
+
+Discovers and runs `@test`-annotated functions in `test/*.zp` (see
+`test/example_test.zp` from `thor new` for the shape). This covers
+thor's own pure helper functions (`test/*_test.zp`).
+
+The rest of thor -- CLI parsing, `thor new`/`thor add`/`thor build`/
+`thor run`/`thor test` behavior end to end, dependency restore, build
+hooks -- is covered by a separate shell-driven suite that builds thor
+and drives it as a real subprocess against throwaway fixture projects:
+
+```bash
+./test/integration/run_integration_tests.sh
+```
+
 ## License
 
 See [LICENSE](LICENSE).

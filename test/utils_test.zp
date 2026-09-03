@@ -1,0 +1,149 @@
+// Unit tests for src/utils.zp -- pure string/flag helpers used across
+// the rest of thor (shell quoting, path predicates, project-name
+// validation, and the ad-hoc flag tokenizer used for thor.toml's
+// `flags` field).
+
+import "@zap-test/test" {TestContext};
+import "../src/utils.zp" as utils;
+import "std/collection";
+
+@test
+pub fun testStartsWithDash(t: TestContext) Void {
+    t.assertTrue(utils.startsWithDash("-foo"), "leading dash detected");
+    t.assertFalse(utils.startsWithDash("foo"), "no leading dash");
+    t.assertFalse(utils.startsWithDash(""), "empty string has no leading dash");
+    t.assertTrue(utils.startsWithDash("--"), "double dash still starts with dash");
+}
+
+@test
+pub fun testEndsWithSlash(t: TestContext) Void {
+    t.assertTrue(utils.endsWithSlash("build/"), "trailing slash detected");
+    t.assertFalse(utils.endsWithSlash("build"), "no trailing slash");
+    t.assertFalse(utils.endsWithSlash(""), "empty string has no trailing slash");
+    t.assertTrue(utils.endsWithSlash("/"), "bare slash counts as trailing slash");
+}
+
+@test
+pub fun testHasSlash(t: TestContext) Void {
+    t.assertTrue(utils.hasSlash("a/b"), "forward slash detected");
+    t.assertTrue(utils.hasSlash("a\\b"), "backslash also counts as a slash");
+    t.assertFalse(utils.hasSlash("app"), "no slash present");
+    t.assertFalse(utils.hasSlash(""), "empty string has no slash");
+}
+
+@test
+pub fun testIsWhitespace(t: TestContext) Void {
+    t.assertTrue(utils.isWhitespace(' '), "space is whitespace");
+    t.assertTrue(utils.isWhitespace('\n'), "newline is whitespace");
+    t.assertTrue(utils.isWhitespace('\r'), "carriage return is whitespace");
+    t.assertTrue(utils.isWhitespace('\t'), "tab is whitespace");
+    t.assertFalse(utils.isWhitespace('a'), "letter is not whitespace");
+}
+
+@test
+pub fun testShellQuoteBasic(t: TestContext) Void {
+    t.assertEqual(utils.shellQuote("hello"), "'hello'", "plain word wrapped in single quotes");
+    t.assertEqual(utils.shellQuote(""), "''", "empty string quotes to an empty pair");
+    t.assertEqual(utils.shellQuote("a b"), "'a b'", "embedded space needs no extra escaping inside single quotes");
+}
+
+@test
+pub fun testShellQuoteEmbeddedSingleQuote(t: TestContext) Void {
+    // POSIX single-quote escaping: close, insert an escaped quote, reopen.
+    t.assertEqual(utils.shellQuote("it's"), "'it'\\''s'", "embedded single quote uses the close-escape-reopen idiom");
+    t.assertEqual(utils.shellQuote("''"), "''\\'''\\'''", "two adjacent single quotes each get escaped");
+}
+
+@test
+pub fun testShellQuoteSuppressesExpansionSyntax(t: TestContext) Void {
+    // shellQuote only wraps in single quotes -- it doesn't need to escape
+    // $, `, or " because single quotes already suppress all shell
+    // expansion for those characters. Pinning down that no extra
+    // escaping is (or needs to be) applied to them.
+    t.assertEqual(utils.shellQuote("$(rm -rf /)"), "'$(rm -rf /)'", "command substitution syntax passed through literally");
+    t.assertEqual(utils.shellQuote("`whoami`"), "'`whoami`'", "backtick substitution syntax passed through literally");
+    t.assertEqual(utils.shellQuote("$HOME\"x\""), "'$HOME\"x\"'", "dollar and double quotes passed through literally");
+}
+
+@test
+pub fun testIsValidProjectNameAccepts(t: TestContext) Void {
+    t.assertTrue(utils.isValidProjectName("app"), "plain lowercase name is valid");
+    t.assertTrue(utils.isValidProjectName("My-App_1.0"), "mixed case, dash, underscore, dot, digits all allowed");
+    t.assertTrue(utils.isValidProjectName("a"), "single character name is valid");
+}
+
+@test
+pub fun testIsValidProjectNameRejectsEmpty(t: TestContext) Void {
+    t.assertFalse(utils.isValidProjectName(""), "empty name is rejected");
+}
+
+@test
+pub fun testIsValidProjectNameRejectsBadLeadingChar(t: TestContext) Void {
+    t.assertFalse(utils.isValidProjectName("-app"), "leading dash rejected");
+    t.assertFalse(utils.isValidProjectName(".app"), "leading dot rejected");
+    t.assertFalse(utils.isValidProjectName("/app"), "leading forward slash rejected");
+    t.assertFalse(utils.isValidProjectName("\\app"), "leading backslash rejected");
+    t.assertFalse(utils.isValidProjectName(" app"), "leading space rejected");
+}
+
+@test
+pub fun testIsValidProjectNameRejectsDisallowedChars(t: TestContext) Void {
+    t.assertFalse(utils.isValidProjectName("app name"), "embedded space rejected");
+    t.assertFalse(utils.isValidProjectName("app@1"), "'@' is not an allowed symbol");
+    t.assertFalse(utils.isValidProjectName("app!"), "'!' is not an allowed symbol");
+    t.assertFalse(utils.isValidProjectName("app/sub"), "embedded slash rejected even though a leading slash check exists separately");
+}
+
+@test
+pub fun testSplitFlagsBasic(t: TestContext) Void {
+    var tokens: collection.List<String> = utils.splitFlags("-O2 -g   --emit-ir");
+    t.assertEqual(tokens.len(), 3, "three whitespace-separated tokens");
+    t.assertEqual(tokens.at(0), "-O2", "first token");
+    t.assertEqual(tokens.at(1), "-g", "second token");
+    t.assertEqual(tokens.at(2), "--emit-ir", "third token, extra whitespace collapsed");
+}
+
+@test
+pub fun testSplitFlagsEmpty(t: TestContext) Void {
+    var tokens: collection.List<String> = utils.splitFlags("");
+    t.assertEqual(tokens.len(), 0, "empty input produces no tokens");
+
+    var onlySpaces: collection.List<String> = utils.splitFlags("   ");
+    t.assertEqual(onlySpaces.len(), 0, "whitespace-only input produces no tokens");
+}
+
+@test
+pub fun testSplitFlagsQuotedSegments(t: TestContext) Void {
+    var doubleQuoted: collection.List<String> = utils.splitFlags("\"a b\" c");
+    t.assertEqual(doubleQuoted.len(), 2, "double-quoted segment kept as one token");
+    t.assertEqual(doubleQuoted.at(0), "a b", "space inside double quotes preserved");
+    t.assertEqual(doubleQuoted.at(1), "c", "trailing unquoted token");
+
+    var singleQuoted: collection.List<String> = utils.splitFlags("'a b' c");
+    t.assertEqual(singleQuoted.len(), 2, "single-quoted segment kept as one token");
+    t.assertEqual(singleQuoted.at(0), "a b", "space inside single quotes preserved");
+}
+
+@test
+pub fun testSplitFlagsUnterminatedQuote(t: TestContext) Void {
+    // Documented current behavior: an unterminated quote never closes,
+    // so the rest of the string (including any spaces after it) is
+    // folded into a single trailing token instead of erroring.
+    var tokens: collection.List<String> = utils.splitFlags("'abc def");
+    t.assertEqual(tokens.len(), 1, "unterminated quote swallows the rest of the string into one token");
+    t.assertEqual(tokens.at(0), "abc def", "space inside the unterminated quote is preserved, not split on");
+}
+
+@test
+pub fun testAppendList(t: TestContext) Void {
+    var dst: collection.List<String> = new collection.List<String>();
+    dst.push("a");
+    var src: collection.List<String> = new collection.List<String>();
+    src.push("b");
+    src.push("c");
+    utils.appendList(dst, src);
+    t.assertEqual(dst.len(), 3, "destination grew by the source's length");
+    t.assertEqual(dst.at(0), "a", "original element preserved");
+    t.assertEqual(dst.at(1), "b", "first appended element");
+    t.assertEqual(dst.at(2), "c", "second appended element, order preserved");
+}

@@ -33,7 +33,7 @@ fun appendFlagString(cmd: String, flags: String) String {
     return cmd;
 }
 
-fun buildCommand(
+pub fun buildCommand(
     compiler: String,
     entry: String,
     outputPath: String,

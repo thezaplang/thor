@@ -25,7 +25,8 @@ pub fun usage(argv0: String) {
     io.eprintln("  " + argv0 + " build [options] [-- <extra zapc flags>]");
     io.eprintln("  " + argv0 + " run   [options] [-- <extra zapc flags>]");
     io.eprintln("  " + argv0 + " new   <project-name>");
-    io.eprintln("  " + argv0 + " add   <git_url>");
+    io.eprintln("  " + argv0 + " add   <git_url> [--test]");
+    io.eprintln("  " + argv0 + " test  [options]");
     io.eprintln("  " + argv0 + " --version");
     io.eprintln("  " + argv0 + " --help");
     io.eprintln("");

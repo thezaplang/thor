@@ -1,0 +1,40 @@
+// Unit tests for src/create.zp's pure scaffold*() string builders (the
+// exact content `thor new` writes to disk). createProject() itself does
+// real filesystem/network work and is covered by the integration suite.
+
+import "@zap-test/test" {TestContext};
+import "../src/create.zp" as create;
+
+@test
+pub fun testScaffoldMainSource(t: TestContext) Void {
+    var expected: String = "import \"std/io\";\n\nfun main() Int {\n    io.println(\"hello from demo\");\n    return 0;\n}\n";
+    t.assertEqual(create.scaffoldMainSource("demo"), expected, "main.zp scaffold embeds the project name in the greeting");
+}
+
+@test
+pub fun testScaffoldMainSourceDifferentName(t: TestContext) Void {
+    var expected: String = "import \"std/io\";\n\nfun main() Int {\n    io.println(\"hello from another-app\");\n    return 0;\n}\n";
+    t.assertEqual(create.scaffoldMainSource("another-app"), expected, "a different project name is embedded correctly");
+}
+
+@test
+pub fun testScaffoldThorToml(t: TestContext) Void {
+    var expected: String = "name         = \"demo\"\nversion      = \"0.1.0\"\nout          = \"build/\"\nentry        = \"src/main.zp\"\n\n# compiler  = \"zapc\"\n# optimization = \"O0\"\n# flags     = \"\"\n\n# before_compile = \"\"\n# after_compile  = \"\"\n\n# [imports]\n# \"@utils\" = \"./src/utils\"\n";
+    t.assertEqual(create.scaffoldThorToml("demo"), expected, "scaffolded thor.toml matches the exact expected template");
+}
+
+@test
+pub fun testScaffoldGitignore(t: TestContext) Void {
+    t.assertEqual(create.scaffoldGitignore(), "build/\nvendor/\n", "gitignore ignores build/ and vendor/ only");
+}
+
+@test
+pub fun testScaffoldExampleTest(t: TestContext) Void {
+    var expected: String = "import \"@zap-test/test\" {TestContext};\n\n@test\npub fun testExample(t: TestContext) Void {\n    t.assertEqual(2 + 2, 4, \"addition works\");\n}\n";
+    t.assertEqual(create.scaffoldExampleTest(), expected, "scaffolded example test matches the exact expected template");
+}
+
+@test
+pub fun testZapTestUrlConstant(t: TestContext) Void {
+    t.assertEqual(create.ZAP_TEST_URL, "https://github.com/zap-tooling/zap-test", "zap-test dependency URL is pinned to the real upstream repo");
+}

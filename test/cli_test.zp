@@ -1,0 +1,18 @@
+// Unit tests for src/cli.zp. parseBuildRunOptions() reads process.argv()
+// directly rather than taking injectable arguments, so its actual flag
+// parsing (-o, --compiler, -O variants, --, error paths) is exercised
+// end-to-end by the integration suite (invoking a real `thor build`/
+// `thor run` subprocess) instead. This file only covers what's
+// reachable in-process: CliOptions' default field values.
+
+import "@zap-test/test" {TestContext};
+import "../src/cli.zp" as cli;
+
+@test
+pub fun testCliOptionsDefaults(t: TestContext) Void {
+    var options: cli.CliOptions = new cli.CliOptions();
+    t.assertEqual(options.outputOverride, "", "outputOverride defaults to empty (no -o given)");
+    t.assertEqual(options.compilerOverride, "", "compilerOverride defaults to empty (no --compiler given)");
+    t.assertEqual(options.optimizationOverride, "", "optimizationOverride defaults to empty (no -O given)");
+    t.assertEqual(options.passthroughFlags.len(), 0, "passthroughFlags starts as an empty list");
+}

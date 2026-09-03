@@ -5,3 +5,4 @@ zap-toml/
 vendor/zap-sfml/
 mytest/
 vendor/
+test/.*.thor_generated_main.zp
